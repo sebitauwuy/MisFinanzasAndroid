@@ -494,12 +494,12 @@ fun FinanceApp(db: FinanceDatabase) {
                             Text("Conexiones bancarias", style = MaterialTheme.typography.titleLarge)
                             Text("Preparación para acceso autorizado · No hay bancos conectados", style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.height(8.dp))
-                            listOf("Banco de Chile", "CMR Falabella").forEach { bank ->
+                            visibleAccounts.filter { it != "Efectivo" }.forEach { bank ->
                                 Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                     Column(Modifier.padding(14.dp)) {
                                         Text(bank, style = MaterialTheme.typography.titleMedium)
                                         Text("Sin conexión · Los movimientos siguen siendo manuales", style = MaterialTheme.typography.bodySmall)
-                                        Text("La conexión automática requerirá un proveedor autorizado, consentimiento explícito y una integración disponible.", style = MaterialTheme.typography.labelSmall)
+                                        Text("La conexión automática requiere un servicio autorizado. La lectura de cartolas depende del formato de cada institución.", style = MaterialTheme.typography.labelSmall)
                                     }
                                 }
                             }
@@ -508,7 +508,7 @@ fun FinanceApp(db: FinanceDatabase) {
                             Spacer(Modifier.height(18.dp))
                             Spacer(Modifier.height(18.dp))
                             Text("Importar cartola CSV / TXT", style = MaterialTheme.typography.titleLarge)
-                            Text("Importación local con vista previa. Formato: fecha, descripción, monto. Usa montos negativos para cargos y positivos para abonos. Acepta fechas AAAA-MM-DD o DD/MM/AAAA, separador coma o punto y coma. No admite PDF ni Excel todavía.", style = MaterialTheme.typography.bodySmall)
+                            Text("Compatible con TXT de Banco de Chile y CSV genérico de tres columnas: fecha, descripción, monto. Para otras instituciones necesitaremos sus formatos de cartola. XLS aún no está disponible.", style = MaterialTheme.typography.bodySmall)
                             AccountPicker(csvAccount, { csvAccount = it }, visibleAccounts)
                             Button(onClick = { csvLauncher.launch(arrayOf("text/*", "application/csv", "application/octet-stream", "*/*")) }) { Text("Elegir cartola CSV o TXT") }
                             Text("Comprueba que los datos estén correctos antes de confirmar. No se sube el archivo a servidores.", style = MaterialTheme.typography.bodySmall)
@@ -648,7 +648,7 @@ fun Dashboard(
                     Spacer(Modifier.height(8.dp))
                     Text(money(balance), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
-                    Text("Banco de Chile + efectivo · No es saldo bancario en tiempo real", color = Color(0xFFE4DDF1), style = MaterialTheme.typography.bodySmall)
+                    Text("Cuentas y billeteras activas · No es saldo bancario en tiempo real", color = Color(0xFFE4DDF1), style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(14.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { onNavigate(1) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF34245C))) { Text("+ Movimiento") }
