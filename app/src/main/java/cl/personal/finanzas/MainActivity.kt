@@ -375,7 +375,7 @@ fun FinanceApp(db: FinanceDatabase) {
         val toDate = movements.filter { it.account == account && asOf != null && parseDate(it.date)?.isAfter(asOf) == false }.sumOf { it.amountClp }
         val opening = if (actual != null) try { Math.subtractExact(actual, toDate) } catch (_: ArithmeticException) { null } else null
         AlertDialog(onDismissRequest = { reconcileAccount = null },
-            title = { Text("Conciliar saldo de $account") },
+            title = { Text("Conciliar saldo de ${AccountCatalog.displayName(account)}") },
             text = { Column {
                 Text("Indica el saldo que muestra tu banco y la fecha. No se borran movimientos ni se crean ingresos.")
                 OutlinedTextField(reconcileDate, { reconcileDate = it }, label = { Text("Fecha (AAAA-MM-DD)") })
@@ -456,7 +456,7 @@ fun FinanceApp(db: FinanceDatabase) {
                 Surface(tonalElevation = 2.dp) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text("Mis Finanzas · CLP", style = MaterialTheme.typography.titleLarge)
-                        Text("v0.9.1 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
+                        Text("v0.9.2 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }, bottomBar = {
@@ -502,7 +502,7 @@ fun FinanceApp(db: FinanceDatabase) {
                             visibleAccounts.filter { it != "Efectivo" }.forEach { bank ->
                                 Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                     Column(Modifier.padding(14.dp)) {
-                                        Text(bank, style = MaterialTheme.typography.titleMedium)
+                                        Text(AccountCatalog.displayName(bank), style = MaterialTheme.typography.titleMedium)
                                         Text("Sin conexión · Los movimientos siguen siendo manuales", style = MaterialTheme.typography.bodySmall)
                                         Text("La conexión automática requiere un servicio autorizado. La lectura de cartolas depende del formato de cada institución.", style = MaterialTheme.typography.labelSmall)
                                     }
@@ -548,11 +548,11 @@ fun FinanceApp(db: FinanceDatabase) {
                                 Text("Elige primero la cuenta. Ocultar una cuenta no borra datos; estas acciones sí pueden modificarlos.", style = MaterialTheme.typography.bodySmall)
                                 Box {
                                     OutlinedButton(onClick = { maintenanceExpanded = true }, modifier = Modifier.fillMaxWidth()) {
-                                        Text("Cuenta: ${chosenAccount ?: "Ninguna"}")
+                                        Text("Cuenta: ${chosenAccount?.let { AccountCatalog.displayName(it) } ?: "Ninguna"}")
                                     }
                                     DropdownMenu(expanded = maintenanceExpanded, onDismissRequest = { maintenanceExpanded = false }) {
                                         manageable.forEach { name ->
-                                            DropdownMenuItem(text = { Text(name) }, onClick = {
+                                            DropdownMenuItem(text = { Text(AccountCatalog.displayName(name)) }, onClick = {
                                                 maintenanceAccount = name
                                                 maintenanceExpanded = false
                                             })
@@ -693,7 +693,7 @@ fun Dashboard(
                 thisMonth.take(5).forEach { (o, date) ->
                     ListItem(
                         headlineContent = { Text(o.title, maxLines = 1) },
-                        supportingContent = { Text("${o.account} · ${date.dayOfMonth}/${date.monthValue}/${date.year}") },
+                        supportingContent = { Text("${AccountCatalog.displayName(o.account)} · ${date.dayOfMonth}/${date.monthValue}/${date.year}") },
                         trailingContent = { Text(money(o.amountClp), fontWeight = FontWeight.Bold) }
                     )
                     HorizontalDivider()
@@ -720,7 +720,7 @@ fun Dashboard(
             Card(shape = RoundedCornerShape(14.dp)) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
-                        Text(account, fontWeight = FontWeight.SemiBold)
+                        Text(AccountCatalog.displayName(account), fontWeight = FontWeight.SemiBold)
                         Text(money(amount), style = MaterialTheme.typography.titleMedium)
                         if (account == "CMR" || account == "Tarjeta Chile")
                             Text("Registro de tarjeta, no dinero disponible", style = MaterialTheme.typography.labelSmall)
@@ -779,9 +779,9 @@ fun SummaryCard(label: String, value: String) {
 fun AccountPicker(value: String, onChange: (String) -> Unit, choices: List<String> = accounts) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) { Text("Cuenta: $value") }
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) { Text("Cuenta: ${AccountCatalog.displayName(value)}") }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            choices.forEach { a -> DropdownMenuItem(text = { Text(a) }, onClick = { onChange(a); expanded = false }) }
+            choices.forEach { a -> DropdownMenuItem(text = { Text(AccountCatalog.displayName(a)) }, onClick = { onChange(a); expanded = false }) }
         }
     }
 }
@@ -874,7 +874,7 @@ fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, sco
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
                     Text(o.title, style = MaterialTheme.typography.titleMedium)
-                    Text("${o.account} · ${o.dueDate}")
+                    Text("${AccountCatalog.displayName(o.account)} · ${o.dueDate}")
                     Text(if (o.kind == "Pago") "${(o.installments - o.paidCount).coerceAtLeast(0)} de ${o.installments} cuota(s) pendientes de ${money(o.amountClp)}" else money(o.amountClp))
                     Text(if (o.paid) "Finalizado" else "Pendiente")
                     if (o.kind == "Pago" && !o.paid) {
