@@ -8,6 +8,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
@@ -15,6 +17,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
@@ -103,6 +112,8 @@ private fun parseDate(value: String): LocalDate? = try { LocalDate.parse(value) 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         val db = Room.databaseBuilder(applicationContext, FinanceDatabase::class.java, "finanzas.db")
             .addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
         setContent { FinanceApp(db) }
@@ -428,16 +439,16 @@ fun FinanceApp(db: FinanceDatabase) {
             }) { Text("Reemplazar datos") } },
             dismissButton = { TextButton(onClick = { importConfirm = null }) { Text("Cancelar") } })
     }
-    MaterialTheme {
+    FinanceTheme {
         if (!unlocked) {
-            Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp), verticalArrangement = Arrangement.Center) {
                 Text("Mis Finanzas", style = MaterialTheme.typography.headlineLarge)
                 Text("Tus datos están protegidos por el bloqueo del dispositivo.")
                 Spacer(Modifier.height(16.dp))
                 Button(onClick = requestUnlock) { Text("Desbloquear") }
             }
         } else if (loadedMovements == null || loadedObligations == null) {
-            Box(Modifier.fillMaxSize()) { CircularProgressIndicator() }
+            Box(Modifier.fillMaxSize().statusBarsPadding(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else if (!accountConfigured || managingAccounts) {
             AccountSelectionScreen(
                 selected = visibleAccounts,
@@ -452,20 +463,52 @@ fun FinanceApp(db: FinanceDatabase) {
                 onCancel = { managingAccounts = false }
             )
         } else {
-            Scaffold(topBar = {
-                Surface(tonalElevation = 2.dp) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                        Text("Mis Finanzas · CLP", style = MaterialTheme.typography.titleLarge)
-                        Text("v0.9.3 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
+            Scaffold(
+                containerColor = FinancePalette.Surface,
+                topBar = {
+                    Surface(modifier = Modifier.fillMaxWidth().background(FinancePalette.Navy).statusBarsPadding(),
+                        color = FinancePalette.Navy) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Mis Finanzas", color = Color.White,
+                                    style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text("TUS FINANZAS EN ORDEN", color = FinancePalette.Cyan,
+                                    style = MaterialTheme.typography.labelSmall)
+                            }
+                            Surface(color = Color.White.copy(alpha = 0.13f),
+                                shape = RoundedCornerShape(12.dp)) {
+                                Text("CLP", Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
+                                    color = Color.White, style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
+                    }
+                },
+                bottomBar = {
+                    NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
+                        val labels = listOf("Inicio", "Movs.", "Cuotas", "Cobros", "Ajustes")
+                        val icons = listOf(Icons.Filled.Home, Icons.Filled.AddCircle,
+                            Icons.Filled.CreditCard, Icons.Filled.Payments, Icons.Filled.Settings)
+                        labels.forEachIndexed { i, label ->
+                            NavigationBarItem(
+                                selected = tab == i,
+                                onClick = { tab = i },
+                                icon = { Icon(icons[i], contentDescription = label) },
+                                label = { Text(label, maxLines = 1) },
+                                alwaysShowLabel = true,
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = FinancePalette.Navy,
+                                    selectedTextColor = FinancePalette.Navy,
+                                    indicatorColor = Color(0xFFDFF5FA),
+                                    unselectedIconColor = FinancePalette.Muted,
+                                    unselectedTextColor = FinancePalette.Muted
+                                )
+                            )
+                        }
                     }
                 }
-            }, bottomBar = {
-                NavigationBar {
-                    listOf("Inicio", "Movimientos", "Cuotas", "Cobros", "Ajustes").forEachIndexed { i, label ->
-                        NavigationBarItem(selected = tab == i, onClick = { tab = i }, icon = { Text(listOf("⌂", "+", "◷", "↗", "⚙")[i]) }, label = { Text(label) })
-                    }
-                }
-            }) { pad ->
+            ) { pad ->
                 Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp).then(if (tab == 4) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
                     when (tab) {
                         0 -> Dashboard(movements, obligations, openingBalances, visibleAccounts, onNavigate = { tab = it }) { account, amount ->
@@ -478,7 +521,7 @@ fun FinanceApp(db: FinanceDatabase) {
                         else -> {
                             Spacer(Modifier.height(16.dp))
                             Text("Mis cuentas activas", style = MaterialTheme.typography.titleLarge)
-                            Text(visibleAccounts.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+                            Text(visibleAccounts.joinToString(" · ") { AccountCatalog.displayName(it) }, style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { managingAccounts = true }) { Text("Agregar u ocultar cuentas") }
                             Spacer(Modifier.height(18.dp))
                             Text("Seguridad", style = MaterialTheme.typography.headlineSmall)
