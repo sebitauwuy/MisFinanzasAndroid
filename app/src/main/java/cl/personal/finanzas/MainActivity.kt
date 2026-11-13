@@ -9,6 +9,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -173,7 +175,7 @@ fun FinanceApp(db: FinanceDatabase) {
                 Surface(tonalElevation = 2.dp) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text("Mis Finanzas · CLP", style = MaterialTheme.typography.titleLarge)
-                        Text("Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
+                        Text("Versión ${BuildConfig.VERSION_NAME} · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }, bottomBar = {
@@ -183,7 +185,7 @@ fun FinanceApp(db: FinanceDatabase) {
                     }
                 }
             }) { pad ->
-                Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp)) {
+                Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp).then(if (tab == 4) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
                     when (tab) {
                         0 -> Dashboard(movements, obligations, openingBalances) { account, amount ->
                             balancePrefs.edit().putLong(account, amount).apply()
