@@ -2,6 +2,7 @@ package cl.personal.finanzas
 
 import android.app.KeyguardManager
 import android.os.Bundle
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -135,6 +136,48 @@ fun FinanceApp(db: FinanceDatabase) {
     var cmrClose by remember { mutableStateOf(billingPrefs.getInt("cmrClose", 12).toString()) }
     var cmrDue by remember { mutableStateOf(billingPrefs.getInt("cmrDue", 25).toString()) }
     var importConfirm by remember { mutableStateOf<android.net.Uri?>(null) }
+    var csvPreview by remember { mutableStateOf<List<Movement>>(emptyList()) }
+    var csvAccount by remember { mutableStateOf("Banco de Chile") }
+    var csvMessage by remember { mutableStateOf("") }
+    val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            try {
+                csvPreview = StatementImport.read(context, uri, csvAccount)
+                csvMessage = "Se encontraron ${csvPreview.size} movimientos válidos. Revisa la vista previa antes de guardar."
+            } catch (e: Exception) {
+                csvPreview = emptyList()
+                csvMessage = "No se pudo leer: ${e.message}"
+            }
+        }
+    }
+    if (csvMessage.isNotBlank()) {
+        AlertDialog(onDismissRequest = { csvMessage = ""; csvPreview = emptyList() },
+            title = { Text("Importar movimientos") },
+            text = {
+                Column(Modifier.heightIn(max = 350.dp).verticalScroll(rememberScrollState())) {
+                    Text(csvMessage)
+                    csvPreview.take(12).forEach { Text("${it.date} · ${it.description} · ${money(it.amountClp)}", style = MaterialTheme.typography.bodySmall) }
+                    if (csvPreview.size > 12) Text("… y ${csvPreview.size - 12} más")
+                    Text("Importa solo movimientos posteriores a tu saldo inicial. Se omiten coincidencias exactas ya registradas.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = csvPreview.isNotEmpty(), onClick = {
+                    val batch = csvPreview.toList()
+                    csvMessage = ""; csvPreview = emptyList()
+                    scope.launch {
+                        val existing = dao.allMovements().map { listOf(it.account, it.date, it.description, it.amountClp.toString()) }.toMutableSet()
+                        var added = 0
+                        batch.forEach { m ->
+                            val key = listOf(m.account, m.date, m.description, m.amountClp.toString())
+                            if (existing.add(key)) { dao.insertMovement(m); added++ }
+                        }
+                        Toast.makeText(context, "$added movimientos importados", Toast.LENGTH_LONG).show()
+                    }
+                }) { Text("Confirmar") }
+            },
+            dismissButton = { TextButton(onClick = { csvMessage = ""; csvPreview = emptyList() }) { Text("Cancelar") } })
+    }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch {
             try { FinanceBackup.export(context, uri, db); Toast.makeText(context, "Respaldo guardado", Toast.LENGTH_LONG).show() }
@@ -227,6 +270,13 @@ fun FinanceApp(db: FinanceDatabase) {
                             }
                             Text("Seguridad de la futura integración", style = MaterialTheme.typography.titleMedium)
                             Text("Nunca ingreses tu clave bancaria, PIN, coordenadas ni códigos SMS en Mis Finanzas. Una futura autorización deberá realizarse mediante el canal seguro del proveedor y permitir revocación.", style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.height(18.dp))
+                            Spacer(Modifier.height(18.dp))
+                            Text("Importar cartola CSV / TXT", style = MaterialTheme.typography.titleLarge)
+                            Text("Importación local con vista previa. Formato: fecha, descripción, monto. Usa montos negativos para cargos y positivos para abonos. Acepta fechas AAAA-MM-DD o DD/MM/AAAA, separador coma o punto y coma. No admite PDF ni Excel todavía.", style = MaterialTheme.typography.bodySmall)
+                            AccountPicker(csvAccount) { csvAccount = it }
+                            Button(onClick = { csvLauncher.launch(arrayOf("text/*", "application/csv", "application/octet-stream", "*/*")) }) { Text("Elegir cartola CSV o TXT") }
+                            Text("Comprueba que los datos estén correctos antes de confirmar. No se sube el archivo a servidores.", style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.height(18.dp))
                             Text("Ciclos de tarjetas (días estimados)", style = MaterialTheme.typography.titleMedium)
                             Text("Configura los días de corte y vencimiento según tus estados de cuenta. No se calculan automáticamente.", style = MaterialTheme.typography.bodySmall)
