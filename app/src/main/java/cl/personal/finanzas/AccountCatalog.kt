@@ -7,16 +7,18 @@ data class AccountOption(val name: String, val type: String, val cashBalance: Bo
 
 object AccountCatalog {
     val options = listOf(
-        AccountOption("Banco de Chile", "Banco", true),
-        AccountOption("Banco Falabella", "Banco", true),
-        AccountOption("BancoEstado", "Banco", true),
-        AccountOption("Santander", "Banco", true),
-        AccountOption("Tenpo", "Billetera / cuenta", true),
-        AccountOption("MACH", "Billetera / cuenta", true),
-        AccountOption("Mercado Pago", "Billetera / cuenta", true),
-        AccountOption("Tarjeta Chile", "Tarjeta de crédito", false),
-        AccountOption("CMR", "Tarjeta de crédito", false),
-        AccountOption("Efectivo", "Efectivo", true)
+        AccountOption("Banco de Chile", "Cuentas y billeteras", true),
+        AccountOption("Banco Falabella", "Cuentas y billeteras", true),
+        AccountOption("BancoEstado", "Cuentas y billeteras", true),
+        AccountOption("Santander", "Cuentas y billeteras", true),
+        AccountOption("Tenpo", "Cuentas y billeteras", true),
+        AccountOption("MACH", "Cuentas y billeteras", true),
+        AccountOption("Mercado Pago", "Cuentas y billeteras", true),
+        AccountOption("Tarjeta Chile", "Tarjetas de crédito", false),
+        AccountOption("CMR", "Tarjetas de crédito", false),
+        AccountOption("Crédito Mercado Pago", "Tarjetas de crédito", false),
+        AccountOption("Crédito MACH", "Tarjetas de crédito", false),
+        AccountOption("Efectivo", "Cuentas y billeteras", true)
     )
     val names: List<String> = options.map { it.name }
     fun isCash(account: String): Boolean = options.firstOrNull { it.name == account }?.cashBalance ?: false
