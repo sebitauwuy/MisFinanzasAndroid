@@ -26,11 +26,31 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
-      - name: Build debug APK
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Preparar firma permanente
+        shell: bash
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          test -n "$SIGNING_KEY_BASE64"
+          test -n "$SIGNING_STORE_PASSWORD"
+          test -n "$SIGNING_KEY_ALIAS"
+          printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/misfinanzas-release.p12"
+          chmod 600 "$RUNNER_TEMP/misfinanzas-release.p12"
+          echo "SIGNING_STORE_FILE=$RUNNER_TEMP/misfinanzas-release.p12" >> "$GITHUB_ENV"
+      - name: Compilar APK release firmado
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        run: gradle --no-daemon :app:assembleRelease
       - uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: MisFinanzas-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: MisFinanzas-release-firmado
+          path: app/build/outputs/apk/release/app-release.apk
           retention-days: 7
+      - name: Eliminar clave temporal
+        if: always()
+        run: rm -f "$RUNNER_TEMP/misfinanzas-release.p12"
