@@ -2,6 +2,7 @@ package cl.personal.finanzas
 
 import android.app.KeyguardManager
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -55,11 +56,15 @@ interface FinanceDao {
     fun movements(): Flow<List<Movement>>
     @Insert suspend fun insertMovement(value: Movement)
     @Delete suspend fun deleteMovement(value: Movement)
+    @Query("SELECT * FROM movements ORDER BY id") suspend fun allMovements(): List<Movement>
+    @Query("DELETE FROM movements") suspend fun clearMovements()
     @Query("SELECT * FROM obligations ORDER BY dueDate ASC, id DESC")
     fun obligations(): Flow<List<Obligation>>
     @Insert suspend fun insertObligation(value: Obligation)
     @Update suspend fun updateObligation(value: Obligation)
     @Delete suspend fun deleteObligation(value: Obligation)
+    @Query("SELECT * FROM obligations ORDER BY id") suspend fun allObligations(): List<Obligation>
+    @Query("DELETE FROM obligations") suspend fun clearObligations()
 }
 
 @Database(entities = [Movement::class, Obligation::class], version = 2, exportSchema = false)
@@ -83,12 +88,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val db = Room.databaseBuilder(applicationContext, FinanceDatabase::class.java, "finanzas.db")
             .addMigrations(MIGRATION_1_2).build()
-        setContent { FinanceApp(db.financeDao()) }
+        setContent { FinanceApp(db) }
     }
 }
 
 @Composable
-fun FinanceApp(dao: FinanceDao) {
+fun FinanceApp(db: FinanceDatabase) {
+    val dao = db.financeDao()
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("security", 0) }
     var lockEnabled by remember { mutableStateOf(prefs.getBoolean("lock", false)) }
@@ -108,6 +114,30 @@ fun FinanceApp(dao: FinanceDao) {
     val obligations by dao.obligations().collectAsState(initial = emptyList())
     var tab by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
+    var importConfirm by remember { mutableStateOf<android.net.Uri?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) scope.launch {
+            try { FinanceBackup.export(context, uri, db); Toast.makeText(context, "Respaldo guardado", Toast.LENGTH_LONG).show() }
+            catch (e: Exception) { Toast.makeText(context, "Error al exportar: ${e.message}", Toast.LENGTH_LONG).show() }
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importConfirm = uri
+    }
+    if (importConfirm != null) {
+        AlertDialog(onDismissRequest = { importConfirm = null },
+            title = { Text("¿Restaurar respaldo?") },
+            text = { Text("Esto reemplazará TODOS los movimientos, cuotas y reembolsos actuales. Exporta primero una copia.") },
+            confirmButton = { TextButton(onClick = {
+                val uri = importConfirm!!
+                importConfirm = null
+                scope.launch {
+                    try { FinanceBackup.import(context, uri, db); Toast.makeText(context, "Respaldo restaurado", Toast.LENGTH_LONG).show() }
+                    catch (e: Exception) { Toast.makeText(context, "No se restauró: ${e.message}", Toast.LENGTH_LONG).show() }
+                }
+            }) { Text("Reemplazar datos") } },
+            dismissButton = { TextButton(onClick = { importConfirm = null }) { Text("Cancelar") } })
+    }
     MaterialTheme {
         if (!unlocked) {
             Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
@@ -153,6 +183,11 @@ fun FinanceApp(dao: FinanceDao) {
                             }
                             Text("Si activas el bloqueo, se solicitará al iniciar de nuevo la app. La base de datos local todavía no tiene cifrado de archivo.", style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { unlocked = false; requestUnlock() }, enabled = lockEnabled) { Text("Bloquear ahora") }
+                            Spacer(Modifier.height(20.dp))
+                            Text("Copias de seguridad", style = MaterialTheme.typography.titleMedium)
+                            Text("El archivo JSON no está cifrado: guárdalo en un lugar privado.", style = MaterialTheme.typography.bodySmall)
+                            Button(onClick = { exportLauncher.launch("mis-finanzas-respaldo.json") }) { Text("Exportar respaldo") }
+                            OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }) { Text("Restaurar respaldo") }
                         }
                     }
                 }
