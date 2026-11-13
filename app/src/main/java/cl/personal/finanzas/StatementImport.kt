@@ -49,7 +49,7 @@ object StatementImport {
             }
             // Banco de Chile TXT: monto CLP en posiciones 44..57; signo +000;
             // descripción variable y tipo C (cargo), A (abono), S (saldo informativo).
-            val typeAndDate = Regex("([CAS])(\\\\d{8})00000$").find(line)
+            val typeAndDate = Regex("([CAS])([0-9]{8})00000$").find(line)
                 ?: error("Fila ${index + 1}: tipo o fecha inválida")
             val kind = typeAndDate.groupValues[1]
             if (kind == "S") return@forEachIndexed // saldo y retenciones no son transacciones
