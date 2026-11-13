@@ -40,6 +40,25 @@ jobs:
           printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/misfinanzas-release.p12"
           chmod 600 "$RUNNER_TEMP/misfinanzas-release.p12"
           echo "SIGNING_STORE_FILE=$RUNNER_TEMP/misfinanzas-release.p12" >> "$GITHUB_ENV"
+      - name: Verificar almacén de firma con Java
+        shell: bash
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          test -s "$SIGNING_STORE_FILE"
+          keytool -list -storetype PKCS12 -keystore "$SIGNING_STORE_FILE" -storepass:env SIGNING_STORE_PASSWORD > /dev/null
+          echo "Almacén PKCS12 legible por Java."
+          SIGNING_STORE_PASSWORD="$SIGNING_STORE_PASSWORD" SIGNING_KEY_ALIAS="$SIGNING_KEY_ALIAS" python3 - <<'PY'
+          import os, subprocess, sys
+          cmd = ["keytool", "-list", "-storetype", "PKCS12", "-keystore", os.environ["SIGNING_STORE_FILE"], "-storepass:env", "SIGNING_STORE_PASSWORD"]
+          output = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+          alias = os.environ["SIGNING_KEY_ALIAS"]
+          if not any(line.strip().startswith(alias + ",") and "PrivateKeyEntry" in line for line in output.splitlines()):
+              sys.exit("No se encontró una entrada de clave privada con el alias configurado.")
+          print("Alias y entrada de clave privada verificados.")
+          PY
       - name: Compilar APK release firmado
         env:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
