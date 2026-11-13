@@ -12,6 +12,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
@@ -175,19 +177,19 @@ fun FinanceApp(db: FinanceDatabase) {
                 Surface(tonalElevation = 2.dp) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text("Mis Finanzas · CLP", style = MaterialTheme.typography.titleLarge)
-                        Text("v0.5 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
+                        Text("v0.6 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }, bottomBar = {
                 NavigationBar {
-                    listOf("Inicio", "Movimientos", "Cuotas", "Reembolsos", "Seguridad").forEachIndexed { i, label ->
-                        NavigationBarItem(selected = tab == i, onClick = { tab = i }, icon = { Text(listOf("⌂", "$", "#", "↗", "●")[i]) }, label = { Text(label) })
+                    listOf("Inicio", "Movimientos", "Cuotas", "Cobros", "Ajustes").forEachIndexed { i, label ->
+                        NavigationBarItem(selected = tab == i, onClick = { tab = i }, icon = { Text(listOf("⌂", "+", "◷", "↗", "⚙")[i]) }, label = { Text(label) })
                     }
                 }
             }) { pad ->
                 Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp).then(if (tab == 4) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
                     when (tab) {
-                        0 -> Dashboard(movements, obligations, openingBalances) { account, amount ->
+                        0 -> Dashboard(movements, obligations, openingBalances, onNavigate = { tab = it }) { account, amount ->
                             balancePrefs.edit().putLong(account, amount).apply()
                             openingBalances = openingBalances + (account to amount)
                         }
@@ -237,22 +239,38 @@ fun FinanceApp(db: FinanceDatabase) {
 }
 
 @Composable
-fun Dashboard(movements: List<Movement>, obligations: List<Obligation>, openingBalances: Map<String, Long>, onBalanceChange: (String, Long) -> Unit) {
+fun Dashboard(
+    movements: List<Movement>,
+    obligations: List<Obligation>,
+    openingBalances: Map<String, Long>,
+    onNavigate: (Int) -> Unit,
+    onBalanceChange: (String, Long) -> Unit
+) {
     val today = LocalDate.now()
     val month = YearMonth.from(today)
-    val current = movements.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == month } == true }
-    val income = current.filter { it.amountClp > 0 }.sumOf { it.amountClp }
-    val expenses = -current.filter { it.amountClp < 0 }.sumOf { it.amountClp }
+    val cashAccounts = listOf("Banco de Chile", "Efectivo")
+    val balance = cashAccounts.sumOf { account ->
+        (openingBalances[account] ?: 0L) + movements.filter { it.account == account }.sumOf { it.amountClp }
+    }
+    val monthMovements = movements.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == month } == true }
+    val income = monthMovements.filter { it.amountClp > 0 && it.account in cashAccounts }.sumOf { it.amountClp }
+    val expenses = -monthMovements.filter { it.amountClp < 0 && it.account in cashAccounts }.sumOf { it.amountClp }
     val pending = obligations.filter { it.kind == "Pago" && !it.paid }.sumOf { it.amountClp * (it.installments - it.paidCount).coerceAtLeast(0) }
     val receivable = obligations.filter { it.kind == "Reembolso" && !it.paid }.sumOf { it.amountClp }
-    val upcoming = obligations.filter { it.kind == "Pago" && !it.paid }.sumOf { o ->
-        val start = parseDate(o.dueDate)
-        if (start == null) 0L else (o.paidCount until o.installments).sumOf { index ->
-            val due = start.plusMonths(index.toLong())
-            if (YearMonth.from(due) == month && !due.isBefore(today)) o.amountClp else 0L
-        }
+    fun dueItems(target: YearMonth): List<Pair<Obligation, LocalDate>> =
+        obligations.filter { it.kind == "Pago" && !it.paid }.flatMap { o ->
+            val first = parseDate(o.dueDate)
+            if (first == null) emptyList() else (o.paidCount until o.installments).mapNotNull { i ->
+                val due = first.plusMonths(i.toLong())
+                if (YearMonth.from(due) == target) o to due else null
+            }
+        }.sortedBy { it.second }
+    val thisMonth = dueItems(month)
+    val dueThisMonth = thisMonth.sumOf { it.first.amountClp }
+    val future = (0..2).map { offset ->
+        val ym = month.plusMonths(offset.toLong())
+        ym to dueItems(ym).sumOf { it.first.amountClp }
     }
-    val balance = movements.filter { it.account != "CMR" && it.account != "Tarjeta Chile" }.sumOf { it.amountClp } + openingBalances.filterKeys { it != "CMR" && it != "Tarjeta Chile" }.values.sum()
     var editingAccount by remember { mutableStateOf<String?>(null) }
     var openingInput by remember { mutableStateOf("") }
     if (editingAccount != null) {
@@ -262,9 +280,9 @@ fun Dashboard(movements: List<Movement>, obligations: List<Obligation>, openingB
             title = { Text("Saldo inicial: $selected") },
             text = {
                 Column {
-                    Text("Registra el saldo de partida. No incluyas de nuevo movimientos anteriores a ese saldo.")
+                    Text("Saldo de partida, sin volver a registrar movimientos anteriores.")
                     OutlinedTextField(openingInput, { openingInput = it.filter { c -> c.isDigit() || c == '-' } },
-                        label = { Text("Saldo inicial CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                        label = { Text("Monto CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 }
             },
             confirmButton = { TextButton(enabled = openingInput.toLongOrNull() != null, onClick = {
@@ -273,51 +291,127 @@ fun Dashboard(movements: List<Movement>, obligations: List<Obligation>, openingB
             dismissButton = { TextButton(onClick = { editingAccount = null }) { Text("Cancelar") } }
         )
     }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
         item {
-            Text("Resumen financiero", style = MaterialTheme.typography.headlineSmall)
-            SummaryCard("Balance registrado (no bancario)", money(balance))
-            SummaryCard("Ingresos de este mes", money(income))
-            SummaryCard("Gastos de este mes", money(expenses))
-            SummaryCard("Cuotas y pagos pendientes", money(pending))
-            SummaryCard("Cuotas que vencen este mes", money(upcoming))
-            SummaryCard("Reembolsos por cobrar", money(receivable))
-            SummaryCard("Proyección hasta fin de mes (sin futuros ingresos)", money(balance - upcoming))
-            Text("Estimación orientativa: no incluye gastos variables futuros, pagos ya registrados ni ingresos por cobrar. No descuenta reembolsos hasta recibirlos.", style = MaterialTheme.typography.bodySmall)
+            Text("Tu panorama financiero", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Actualizado con tus registros · ${today.dayOfMonth}/${today.monthValue}/${today.year}",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
-            Text("Tendencia de 6 meses", style = MaterialTheme.typography.titleMedium)
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF34245C)), shape = RoundedCornerShape(22.dp)) {
+                Column(Modifier.fillMaxWidth().padding(22.dp)) {
+                    Text("DINERO DISPONIBLE REGISTRADO", color = Color(0xFFD8CBF5), style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text(money(balance), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Banco de Chile + efectivo · No es saldo bancario en tiempo real", color = Color(0xFFE4DDF1), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { onNavigate(1) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF34245C))) { Text("+ Movimiento") }
+                        OutlinedButton(onClick = { onNavigate(2) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("Ver pagos") }
+                    }
+                }
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.weight(1f)) { FinanceMetric("Ingresos del mes", money(income), Color(0xFF176D47)) }
+                Box(Modifier.weight(1f)) { FinanceMetric("Salidas del mes", money(expenses), Color(0xFFAD4141)) }
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.weight(1f)) { FinanceMetric("Deuda pendiente", money(pending), Color(0xFF7853A6)) }
+                Box(Modifier.weight(1f)) { FinanceMetric("Por cobrar", money(receivable), Color(0xFF236A86)) }
+            }
+        }
+        item {
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp)) {
+                    Text("Proyección de fin de mes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(5.dp))
+                    Text(money(balance - dueThisMonth), style = MaterialTheme.typography.headlineMedium)
+                    Text("Disponible registrado menos todas las cuotas pendientes del mes (${money(dueThisMonth)}).", style = MaterialTheme.typography.bodySmall)
+                    Text("Estimación: no incluye futuros ingresos, gastos variables ni pagos ya reflejados en movimientos.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        item {
+            Text("Próximos vencimientos", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            if (thisMonth.isEmpty()) {
+                Text("No hay cuotas pendientes registradas para este mes.", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                thisMonth.take(5).forEach { (o, date) ->
+                    ListItem(
+                        headlineContent = { Text(o.title, maxLines = 1) },
+                        supportingContent = { Text("${o.account} · ${date.dayOfMonth}/${date.monthValue}/${date.year}") },
+                        trailingContent = { Text(money(o.amountClp), fontWeight = FontWeight.Bold) }
+                    )
+                    HorizontalDivider()
+                }
+            }
+            TextButton(onClick = { onNavigate(2) }) { Text("Gestionar todas las cuotas") }
+        }
+        item {
+            Text("Compromisos de los próximos 3 meses", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            future.forEach { (ym, amount) ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("${ym.monthValue}/${ym.year}")
+                    Text(money(amount), fontWeight = FontWeight.SemiBold)
+                }
+                HorizontalDivider()
+            }
+        }
+        item {
+            Text("Mis cuentas", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Edita el saldo inicial sin alterar tus movimientos.", style = MaterialTheme.typography.bodySmall)
+        }
+        items(accounts) { account ->
+            val amount = (openingBalances[account] ?: 0L) + movements.filter { it.account == account }.sumOf { it.amountClp }
+            Card(shape = RoundedCornerShape(14.dp)) {
+                Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(Modifier.weight(1f)) {
+                        Text(account, fontWeight = FontWeight.SemiBold)
+                        Text(money(amount), style = MaterialTheme.typography.titleMedium)
+                        if (account == "CMR" || account == "Tarjeta Chile")
+                            Text("Registro de tarjeta, no dinero disponible", style = MaterialTheme.typography.labelSmall)
+                    }
+                    TextButton(onClick = {
+                        editingAccount = account
+                        openingInput = (openingBalances[account] ?: 0L).toString()
+                    }) { Text("Editar") }
+                }
+            }
+        }
+        item {
+            Text("Ingresos y gastos · últimos 6 meses", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             (5 downTo 0).forEach { offset ->
                 val ym = month.minusMonths(offset.toLong())
-                val data = movements.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == ym } == true }
+                val data = movements.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == ym } == true && it.account in cashAccounts }
                 val earned = data.filter { it.amountClp > 0 }.sumOf { it.amountClp }
                 val spent = -data.filter { it.amountClp < 0 }.sumOf { it.amountClp }
-                Text("${ym.monthValue}/${ym.year} · Ingresos ${money(earned)} · Gastos ${money(spent)}", style = MaterialTheme.typography.bodySmall)
+                Text("${ym.monthValue}/${ym.year} · +${money(earned)} / -${money(spent)}", style = MaterialTheme.typography.bodySmall)
                 val maximum = maxOf(earned, spent, 1L).toFloat()
-                Box(Modifier.fillMaxWidth().height(8.dp).background(Color.LightGray)) {
+                Box(Modifier.fillMaxWidth().height(7.dp).background(Color(0xFFE4E1E9))) {
                     Box(Modifier.fillMaxWidth((earned.toFloat() / maximum).coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF388E3C)))
                 }
                 Spacer(Modifier.height(3.dp))
-                Box(Modifier.fillMaxWidth().height(8.dp).background(Color.LightGray)) {
+                Box(Modifier.fillMaxWidth().height(7.dp).background(Color(0xFFE4E1E9))) {
                     Box(Modifier.fillMaxWidth((spent.toFloat() / maximum).coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFFB54747)))
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(9.dp))
             }
         }
-        item { Text("Movimientos por cuenta", style = MaterialTheme.typography.titleMedium) }
-        items(accounts) { name ->
-            val sum = movements.filter { it.account == name }.sumOf { it.amountClp } + (openingBalances[name] ?: 0L)
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(name, style = MaterialTheme.typography.titleMedium)
-                    Text(money(sum), style = MaterialTheme.typography.titleLarge)
-                    Text(if (name == "CMR" || name == "Tarjeta Chile") "Registro de tarjeta, no saldo disponible" else "Saldo inicial + movimientos", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = {
-                        editingAccount = name
-                        openingInput = (openingBalances[name] ?: 0L).toString()
-                    }) { Text("Editar saldo inicial") }
-                }
-            }
+    }
+}
+
+@Composable
+fun FinanceMetric(label: String, value: String, accent: Color) {
+    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.10f))) {
+        Column(Modifier.fillMaxWidth().padding(13.dp)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = accent)
+            Spacer(Modifier.height(5.dp))
+            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         }
     }
 }
