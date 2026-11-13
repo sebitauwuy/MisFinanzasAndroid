@@ -14,6 +14,21 @@ android {
         versionCode = 3
         versionName = "0.3"
     }
+    signingConfigs {
+        create("permanentRelease") {
+            storeFile = System.getenv("SIGNING_STORE_FILE")?.let { file(it) }
+            storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+            keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+            keyPassword = System.getenv("SIGNING_STORE_PASSWORD")
+            storeType = "pkcs12"
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("permanentRelease")
+            isMinifyEnabled = false
+        }
+    }
     buildFeatures { compose = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
