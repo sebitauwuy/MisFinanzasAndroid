@@ -67,6 +67,7 @@ interface FinanceDao {
     @Delete suspend fun deleteMovement(value: Movement)
     @Query("SELECT * FROM movements ORDER BY id") suspend fun allMovements(): List<Movement>
     @Query("DELETE FROM movements") suspend fun clearMovements()
+    @Query("DELETE FROM movements WHERE account = :account") suspend fun clearAccountMovements(account: String)
     @Query("SELECT * FROM obligations ORDER BY dueDate ASC, id DESC")
     fun obligations(): Flow<List<Obligation>>
     @Insert suspend fun insertObligation(value: Obligation)
@@ -137,6 +138,11 @@ fun FinanceApp(db: FinanceDatabase) {
     var cmrClose by remember { mutableStateOf(billingPrefs.getInt("cmrClose", 12).toString()) }
     var cmrDue by remember { mutableStateOf(billingPrefs.getInt("cmrDue", 25).toString()) }
     var importConfirm by remember { mutableStateOf<android.net.Uri?>(null) }
+    var resetAccount by remember { mutableStateOf<String?>(null) }
+    var resetAllConfirm by remember { mutableStateOf(false) }
+    var reconcileAccount by remember { mutableStateOf<String?>(null) }
+    var reconcileAmount by remember { mutableStateOf("") }
+    var reconcileDate by remember { mutableStateOf(LocalDate.now().toString()) }
     var csvPreview by remember { mutableStateOf<List<Movement>>(emptyList()) }
     var csvAccount by remember { mutableStateOf("Banco de Chile") }
     var csvCutoff by remember { mutableStateOf(LocalDate.now().toString()) }
@@ -232,6 +238,63 @@ fun FinanceApp(db: FinanceDatabase) {
             dismissButton = { TextButton(onClick = { csvMessage = ""; csvPreview = emptyList() }) { Text("Cancelar") } }
         )
     }
+    if (resetAccount != null || resetAllConfirm) {
+        val account = resetAccount
+        AlertDialog(onDismissRequest = { resetAccount = null; resetAllConfirm = false },
+            title = { Text(if (account != null) "Borrar registros de $account" else "Borrar todos los saldos y movimientos") },
+            text = { Text(if (account != null)
+                "Se eliminarán permanentemente los movimientos de $account y su saldo inicial se pondrá en cero. Las cuotas y cobros permanecerán. Exporta un respaldo antes."
+                else "Se eliminarán permanentemente TODOS los movimientos y se pondrán en cero los saldos iniciales de todas las cuentas. Las cuotas y cobros permanecerán. Exporta un respaldo antes.") },
+            confirmButton = { TextButton(onClick = {
+                resetAccount = null; resetAllConfirm = false
+                scope.launch {
+                    try {
+                        db.withTransaction {
+                            if (account == null) dao.clearMovements() else dao.clearAccountMovements(account)
+                        }
+                        val selected = if (account == null) accounts else listOf(account)
+                        val editor = balancePrefs.edit()
+                        selected.forEach { editor.putLong(it, 0L) }
+                        if (!editor.commit()) error("No se pudieron guardar los saldos en cero")
+                        openingBalances = openingBalances + selected.associateWith { 0L }
+                        Toast.makeText(context, "Registros borrados. Ya puedes importar de nuevo.", Toast.LENGTH_LONG).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Error al borrar: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }) { Text("Sí, borrar definitivamente", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { resetAccount = null; resetAllConfirm = false }) { Text("Cancelar") } }
+        )
+    }
+    if (reconcileAccount != null) {
+        val account = reconcileAccount!!
+        val asOf = parseDate(reconcileDate)
+        val actual = reconcileAmount.toLongOrNull()
+        val toDate = movements.filter { it.account == account && asOf != null && parseDate(it.date)?.isAfter(asOf) == false }.sumOf { it.amountClp }
+        val opening = if (actual != null) try { Math.subtractExact(actual, toDate) } catch (_: ArithmeticException) { null } else null
+        AlertDialog(onDismissRequest = { reconcileAccount = null },
+            title = { Text("Conciliar saldo de $account") },
+            text = { Column {
+                Text("Indica el saldo que muestra tu banco y la fecha. No se borran movimientos ni se crean ingresos.")
+                OutlinedTextField(reconcileDate, { reconcileDate = it }, label = { Text("Fecha (AAAA-MM-DD)") })
+                OutlinedTextField(reconcileAmount, { reconcileAmount = it.filter { c -> c.isDigit() || c == '-' } }, label = { Text("Saldo real CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                if (asOf != null && opening != null) {
+                    Text("Saldo inicial nuevo: ${money(opening)}")
+                    Text("Saldo calculado a ${asOf}: ${money(actual!!)}")
+                    Text("Los movimientos posteriores a esa fecha no se incluyen en la conciliación.")
+                }
+            } },
+            confirmButton = { TextButton(enabled = asOf != null && !asOf.isAfter(LocalDate.now()) && opening != null, onClick = {
+                val target = opening!!
+                if (balancePrefs.edit().putLong(account, target).commit()) {
+                    openingBalances = openingBalances + (account to target)
+                    reconcileAccount = null
+                    Toast.makeText(context, "Saldo conciliado a la fecha indicada", Toast.LENGTH_LONG).show()
+                } else Toast.makeText(context, "No se pudo guardar", Toast.LENGTH_LONG).show()
+            }) { Text("Conciliar") } },
+            dismissButton = { TextButton(onClick = { reconcileAccount = null }) { Text("Cancelar") } }
+        )
+    }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch {
             try { FinanceBackup.export(context, uri, db); Toast.makeText(context, "Respaldo guardado", Toast.LENGTH_LONG).show() }
@@ -274,7 +337,7 @@ fun FinanceApp(db: FinanceDatabase) {
                 Surface(tonalElevation = 2.dp) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text("Mis Finanzas · CLP", style = MaterialTheme.typography.titleLarge)
-                        Text("v0.8.2 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
+                        Text("v0.8.3 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }, bottomBar = {
@@ -344,6 +407,18 @@ fun FinanceApp(db: FinanceDatabase) {
                                     .putInt("cmrClose", days[2]!!).putInt("cmrDue", days[3]!!).apply()
                                 Toast.makeText(context, "Ciclos guardados", Toast.LENGTH_SHORT).show()
                             }) { Text("Guardar ciclos") }
+                            Spacer(Modifier.height(16.dp))
+                            Text("Reiniciar datos para volver a importar", style = MaterialTheme.typography.titleLarge)
+                            Text("Primero exporta un respaldo. Puedes borrar solo Banco de Chile o cualquier otra cuenta, sin eliminar cuotas ni cobros.", style = MaterialTheme.typography.bodySmall)
+                            accounts.forEach { account ->
+                                OutlinedButton(onClick = { resetAccount = account }) { Text("Borrar saldo y movimientos: $account") }
+                            }
+                            OutlinedButton(onClick = { resetAllConfirm = true }) { Text("Borrar saldos y movimientos de todas las cuentas") }
+                            Spacer(Modifier.height(12.dp))
+                            Text("Conciliar saldo sin subir cartola", style = MaterialTheme.typography.titleMedium)
+                            accounts.forEach { account ->
+                                TextButton(onClick = { reconcileAccount = account; reconcileAmount = ""; reconcileDate = LocalDate.now().toString() }) { Text("Conciliar $account") }
+                            }
                             Spacer(Modifier.height(16.dp))
                             Text("Copias de seguridad", style = MaterialTheme.typography.titleMedium)
                             Text("El archivo JSON no está cifrado: guárdalo en un lugar privado.", style = MaterialTheme.typography.bodySmall)
