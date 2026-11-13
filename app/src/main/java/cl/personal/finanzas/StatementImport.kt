@@ -7,12 +7,15 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
-/** Importación local de CSV/TXT normalizados; nunca se conecta al banco. */
+/** Importación local de XLS Falabella, TXT Banco de Chile y CSV genéricos; no se conecta al banco. */
 object StatementImport {
     suspend fun read(context: Context, uri: Uri, account: String): List<Movement> = withContext(Dispatchers.IO) {
         val stream = context.contentResolver.openInputStream(uri) ?: error("Archivo inaccesible")
         val bytes = stream.use { it.readBytes() }
         require(bytes.size <= 2_000_000) { "Archivo demasiado grande (máximo 2 MB)" }
+        if (FalabellaDebitXlsReader.isBinaryXls(bytes)) {
+            return@withContext FalabellaDebitXlsReader.read(bytes, account)
+        }
         val raw = bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF")
         val lines = raw.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.toList()
         require(lines.size <= 5001) { "Máximo 5000 movimientos" }
