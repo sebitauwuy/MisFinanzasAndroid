@@ -143,6 +143,45 @@ fun FinanceApp(db: FinanceDatabase) {
     var reconcileAccount by remember { mutableStateOf<String?>(null) }
     var reconcileAmount by remember { mutableStateOf("") }
     var reconcileDate by remember { mutableStateOf(LocalDate.now().toString()) }
+    var cardPdfReport by remember { mutableStateOf<CardPdfReport?>(null) }
+    var cardPdfError by remember { mutableStateOf<String?>(null) }
+    val cardPdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            cardPdfReport = null
+            cardPdfError = null
+            try {
+                cardPdfReport = CardPdfReader.read(context, uri)
+            } catch (e: Exception) {
+                cardPdfError = e.message ?: "No se pudo leer el PDF"
+            }
+        }
+    }
+    if (cardPdfReport != null || cardPdfError != null) {
+        val report = cardPdfReport
+        AlertDialog(
+            onDismissRequest = { cardPdfReport = null; cardPdfError = null },
+            title = { Text("Vista previa del PDF") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (cardPdfError != null) {
+                        Text(cardPdfError!!, color = MaterialTheme.colorScheme.error)
+                    } else if (report != null) {
+                        Text("Banco de Chile · No facturado al ${report.reportDate}")
+                        Text("Cupo utilizado: ${money(report.usedLimit)}", style = MaterialTheme.typography.titleMedium)
+                        Text("Cupo disponible: ${money(report.availableLimit)}")
+                        Text("Cupo total: ${money(report.totalLimit)}")
+                        if (!report.amountsConsistent)
+                            Text("Atención: los cupos no suman el cupo total. Verifica el documento.", color = MaterialTheme.colorScheme.error)
+                        if (report.paymentMentioned)
+                            Text("El archivo incluye al menos un pago; no se interpreta automáticamente como deuda facturada.")
+                        Text("Este PDF no indica por sí solo cuánto debes pagar en el próximo vencimiento ni su fecha exacta.")
+                        Text("Vista previa solamente: no se modificó ningún saldo ni se agregaron movimientos.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { cardPdfReport = null; cardPdfError = null }) { Text("Cerrar") } }
+        )
+    }
     var csvPreview by remember { mutableStateOf<List<Movement>>(emptyList()) }
     var csvAccount by remember { mutableStateOf("Banco de Chile") }
     var csvCutoff by remember { mutableStateOf(LocalDate.now().toString()) }
@@ -364,7 +403,7 @@ fun FinanceApp(db: FinanceDatabase) {
                 Surface(tonalElevation = 2.dp) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text("Mis Finanzas · CLP", style = MaterialTheme.typography.titleLarge)
-                        Text("v0.8.4 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
+                        Text("v0.8.5 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }, bottomBar = {
@@ -421,6 +460,10 @@ fun FinanceApp(db: FinanceDatabase) {
                             AccountPicker(csvAccount) { csvAccount = it }
                             Button(onClick = { csvLauncher.launch(arrayOf("text/*", "application/csv", "application/octet-stream", "*/*")) }) { Text("Elegir cartola CSV o TXT") }
                             Text("Comprueba que los datos estén correctos antes de confirmar. No se sube el archivo a servidores.", style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.height(18.dp))
+                            Text("Leer PDF de tarjeta de crédito", style = MaterialTheme.typography.titleLarge)
+                            Text("Banco de Chile: consulta cupo utilizado, disponible y total desde el PDF de movimientos no facturados. Solo lectura; no cambia tus saldos.", style = MaterialTheme.typography.bodySmall)
+                            Button(onClick = { cardPdfLauncher.launch(arrayOf("application/pdf")) }) { Text("Elegir PDF de tarjeta") }
                             Spacer(Modifier.height(18.dp))
                             Text("Ciclos de tarjetas (días estimados)", style = MaterialTheme.typography.titleMedium)
                             Text("Configura los días de corte y vencimiento según tus estados de cuenta. No se calculan automáticamente.", style = MaterialTheme.typography.bodySmall)
