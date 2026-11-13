@@ -11,8 +11,8 @@ android {
         applicationId = "cl.personal.finanzas"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.8.4"
+        versionCode = 13
+        versionName = "0.8.5"
     }
     signingConfigs {
         create("permanentRelease") {
@@ -45,5 +45,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     kapt("androidx.room:room-compiler:2.6.1")
 }
