@@ -162,6 +162,9 @@ fun FinanceApp(db: FinanceDatabase) {
     var importConfirm by remember { mutableStateOf<android.net.Uri?>(null) }
     var resetAccount by remember { mutableStateOf<String?>(null) }
     var resetAllConfirm by remember { mutableStateOf(false) }
+    var maintenanceOpen by remember { mutableStateOf(false) }
+    var maintenanceExpanded by remember { mutableStateOf(false) }
+    var maintenanceAccount by remember { mutableStateOf("Banco de Chile") }
     var reconcileAccount by remember { mutableStateOf<String?>(null) }
     var reconcileAmount by remember { mutableStateOf("") }
     var reconcileDate by remember { mutableStateOf(LocalDate.now().toString()) }
@@ -527,16 +530,42 @@ fun FinanceApp(db: FinanceDatabase) {
                                 Toast.makeText(context, "Ciclos guardados", Toast.LENGTH_SHORT).show()
                             }) { Text("Guardar ciclos") }
                             Spacer(Modifier.height(16.dp))
-                            Text("Reiniciar datos para volver a importar", style = MaterialTheme.typography.titleLarge)
-                            Text("Primero exporta un respaldo. Puedes borrar solo Banco de Chile o cualquier otra cuenta, sin eliminar cuotas ni cobros.", style = MaterialTheme.typography.bodySmall)
-                            accounts.forEach { account ->
-                                OutlinedButton(onClick = { resetAccount = account }) { Text("Borrar saldo y movimientos: $account") }
+                            Text("Administración de saldos", style = MaterialTheme.typography.titleLarge)
+                            OutlinedButton(onClick = { maintenanceOpen = !maintenanceOpen }, modifier = Modifier.fillMaxWidth()) {
+                                Text(if (maintenanceOpen) "Ocultar herramientas de cuentas ▲" else "Borrar o conciliar una cuenta ▼")
                             }
-                            OutlinedButton(onClick = { resetAllConfirm = true }) { Text("Borrar saldos y movimientos de todas las cuentas") }
-                            Spacer(Modifier.height(12.dp))
-                            Text("Conciliar saldo sin subir cartola", style = MaterialTheme.typography.titleMedium)
-                            accounts.forEach { account ->
-                                TextButton(onClick = { reconcileAccount = account; reconcileAmount = ""; reconcileDate = LocalDate.now().toString() }) { Text("Conciliar $account") }
+                            if (maintenanceOpen) {
+                                val manageable = (visibleAccounts +
+                                    movements.map { it.account } +
+                                    openingBalances.filterValues { it != 0L }.keys).distinct()
+                                val chosenAccount = if (maintenanceAccount in manageable) maintenanceAccount
+                                    else manageable.firstOrNull()
+                                Text("Elige primero la cuenta. Ocultar una cuenta no borra datos; estas acciones sí pueden modificarlos.", style = MaterialTheme.typography.bodySmall)
+                                Box {
+                                    OutlinedButton(onClick = { maintenanceExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                                        Text("Cuenta: ${chosenAccount ?: "Ninguna"}")
+                                    }
+                                    DropdownMenu(expanded = maintenanceExpanded, onDismissRequest = { maintenanceExpanded = false }) {
+                                        manageable.forEach { name ->
+                                            DropdownMenuItem(text = { Text(name) }, onClick = {
+                                                maintenanceAccount = name
+                                                maintenanceExpanded = false
+                                            })
+                                        }
+                                    }
+                                }
+                                OutlinedButton(enabled = chosenAccount != null, onClick = {
+                                    resetAccount = chosenAccount
+                                }, modifier = Modifier.fillMaxWidth()) { Text("Borrar saldo y movimientos de esta cuenta") }
+                                OutlinedButton(enabled = chosenAccount != null, onClick = {
+                                    reconcileAccount = chosenAccount
+                                    reconcileAmount = ""
+                                    reconcileDate = LocalDate.now().toString()
+                                }, modifier = Modifier.fillMaxWidth()) { Text("Conciliar esta cuenta con saldo real") }
+                                Text("El borrado requiere confirmación y conserva cuotas y cobros. La conciliación modifica solo el saldo inicial.", style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = { resetAllConfirm = true }) {
+                                    Text("Borrar saldos y movimientos de todas las cuentas", color = MaterialTheme.colorScheme.error)
+                                }
                             }
                             Spacer(Modifier.height(16.dp))
                             Text("Copias de seguridad", style = MaterialTheme.typography.titleMedium)
