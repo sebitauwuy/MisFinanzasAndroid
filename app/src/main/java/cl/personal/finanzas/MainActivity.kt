@@ -8,6 +8,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
@@ -113,6 +115,8 @@ fun FinanceApp(db: FinanceDatabase) {
     val movements by dao.movements().collectAsState(initial = emptyList())
     val obligations by dao.obligations().collectAsState(initial = emptyList())
     var tab by remember { mutableStateOf(0) }
+    val balancePrefs = remember { context.getSharedPreferences("opening_balances", 0) }
+    var openingBalances by remember { mutableStateOf(accounts.associateWith { balancePrefs.getLong(it, 0L) }) }
     val scope = rememberCoroutineScope()
     var importConfirm by remember { mutableStateOf<android.net.Uri?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -163,7 +167,10 @@ fun FinanceApp(db: FinanceDatabase) {
             }) { pad ->
                 Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp)) {
                     when (tab) {
-                        0 -> Dashboard(movements, obligations)
+                        0 -> Dashboard(movements, obligations, openingBalances) { account, amount ->
+                            balancePrefs.edit().putLong(account, amount).apply()
+                            openingBalances = openingBalances + (account to amount)
+                        }
                         1 -> MovementScreen(movements, dao, scope)
                         2 -> ObligationScreen(obligations.filter { it.kind == "Pago" }, "Pago", dao, scope)
                         3 -> ObligationScreen(obligations.filter { it.kind == "Reembolso" }, "Reembolso", dao, scope)
@@ -197,7 +204,7 @@ fun FinanceApp(db: FinanceDatabase) {
 }
 
 @Composable
-fun Dashboard(movements: List<Movement>, obligations: List<Obligation>) {
+fun Dashboard(movements: List<Movement>, obligations: List<Obligation>, openingBalances: Map<String, Long>, onBalanceChange: (String, Long) -> Unit) {
     val today = LocalDate.now()
     val month = YearMonth.from(today)
     val current = movements.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == month } == true }
@@ -205,7 +212,27 @@ fun Dashboard(movements: List<Movement>, obligations: List<Obligation>) {
     val expenses = -current.filter { it.amountClp < 0 }.sumOf { it.amountClp }
     val pending = obligations.filter { it.kind == "Pago" && !it.paid }.sumOf { it.amountClp * it.installments }
     val receivable = obligations.filter { it.kind == "Reembolso" && !it.paid }.sumOf { it.amountClp }
-    val balance = movements.sumOf { it.amountClp }
+    val balance = movements.filter { it.account != "CMR" && it.account != "Tarjeta Chile" }.sumOf { it.amountClp } + openingBalances.filterKeys { it != "CMR" && it != "Tarjeta Chile" }.values.sum()
+    var editingAccount by remember { mutableStateOf<String?>(null) }
+    var openingInput by remember { mutableStateOf("") }
+    if (editingAccount != null) {
+        val selected = editingAccount!!
+        AlertDialog(
+            onDismissRequest = { editingAccount = null },
+            title = { Text("Saldo inicial: $selected") },
+            text = {
+                Column {
+                    Text("Registra el saldo de partida. No incluyas de nuevo movimientos anteriores a ese saldo.")
+                    OutlinedTextField(openingInput, { openingInput = it.filter { c -> c.isDigit() || c == '-' } },
+                        label = { Text("Saldo inicial CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                }
+            },
+            confirmButton = { TextButton(enabled = openingInput.toLongOrNull() != null, onClick = {
+                onBalanceChange(selected, openingInput.toLong()); editingAccount = null
+            }) { Text("Guardar") } },
+            dismissButton = { TextButton(onClick = { editingAccount = null }) { Text("Cancelar") } }
+        )
+    }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
         item {
             Text("Resumen financiero", style = MaterialTheme.typography.headlineSmall)
@@ -217,10 +244,39 @@ fun Dashboard(movements: List<Movement>, obligations: List<Obligation>) {
             SummaryCard("Proyección simple (sin futuros ingresos)", money(balance - pending + receivable))
             Text("La proyección es orientativa: no incluye saldos reales ni pagos ya reflejados en movimientos. Evita registrar dos veces el mismo pago.", style = MaterialTheme.typography.bodySmall)
         }
+        item {
+            Text("Tendencia de 6 meses", style = MaterialTheme.typography.titleMedium)
+            (5 downTo 0).forEach { offset ->
+                val ym = month.minusMonths(offset.toLong())
+                val data = movements.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == ym } == true }
+                val earned = data.filter { it.amountClp > 0 }.sumOf { it.amountClp }
+                val spent = -data.filter { it.amountClp < 0 }.sumOf { it.amountClp }
+                Text("${ym.monthValue}/${ym.year} · Ingresos ${money(earned)} · Gastos ${money(spent)}", style = MaterialTheme.typography.bodySmall)
+                val maximum = maxOf(earned, spent, 1L).toFloat()
+                Box(Modifier.fillMaxWidth().height(8.dp).background(Color.LightGray)) {
+                    Box(Modifier.fillMaxWidth((earned.toFloat() / maximum).coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF388E3C)))
+                }
+                Spacer(Modifier.height(3.dp))
+                Box(Modifier.fillMaxWidth().height(8.dp).background(Color.LightGray)) {
+                    Box(Modifier.fillMaxWidth((spent.toFloat() / maximum).coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFFB54747)))
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
         item { Text("Movimientos por cuenta", style = MaterialTheme.typography.titleMedium) }
         items(accounts) { name ->
-            val sum = movements.filter { it.account == name }.sumOf { it.amountClp }
-            SummaryCard(name, money(sum))
+            val sum = movements.filter { it.account == name }.sumOf { it.amountClp } + (openingBalances[name] ?: 0L)
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp)) {
+                    Text(name, style = MaterialTheme.typography.titleMedium)
+                    Text(money(sum), style = MaterialTheme.typography.titleLarge)
+                    Text(if (name == "CMR" || name == "Tarjeta Chile") "Registro de tarjeta, no saldo disponible" else "Saldo inicial + movimientos", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = {
+                        editingAccount = name
+                        openingInput = (openingBalances[name] ?: 0L).toString()
+                    }) { Text("Editar saldo inicial") }
+                }
+            }
         }
     }
 }
@@ -254,6 +310,8 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
     var category by remember { mutableStateOf("General") }
     var expense by remember { mutableStateOf(true) }
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
+    var search by remember { mutableStateOf("") }
+    var selectedAccount by remember { mutableStateOf("Todas") }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
         item {
             Text("Registrar movimiento", style = MaterialTheme.typography.titleLarge)
@@ -274,8 +332,21 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
             }, modifier = Modifier.fillMaxWidth()) { Text("Guardar movimiento") }
             HorizontalDivider()
             Text("Historial", style = MaterialTheme.typography.titleLarge)
+            OutlinedTextField(search, { search = it }, label = { Text("Buscar movimientos") }, modifier = Modifier.fillMaxWidth())
+            var expandedFilter by remember { mutableStateOf(false) }
+            Box {
+                OutlinedButton(onClick = { expandedFilter = true }) { Text("Cuenta: $selectedAccount") }
+                DropdownMenu(expanded = expandedFilter, onDismissRequest = { expandedFilter = false }) {
+                    (listOf("Todas") + accounts).forEach { name ->
+                        DropdownMenuItem(text = { Text(name) }, onClick = { selectedAccount = name; expandedFilter = false })
+                    }
+                }
+            }
         }
-        items(movements, key = { it.id }) { m ->
+        items(movements.filter {
+            (selectedAccount == "Todas" || it.account == selectedAccount) &&
+                (search.isBlank() || it.description.contains(search, ignoreCase = true) || it.category.contains(search, ignoreCase = true))
+        }, key = { it.id }) { m ->
             Card(Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(12.dp)) {
                     Column(Modifier.weight(1f)) {
@@ -322,6 +393,14 @@ fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, sco
                     Text("${o.account} · ${o.dueDate}")
                     Text(if (o.kind == "Pago") "${o.installments} cuota(s) de ${money(o.amountClp)}" else money(o.amountClp))
                     Text(if (o.paid) "Finalizado" else "Pendiente")
+                    if (o.kind == "Pago" && !o.paid) {
+                        parseDate(o.dueDate)?.let { first ->
+                            Text("Próximos vencimientos:", style = MaterialTheme.typography.labelMedium)
+                            repeat(minOf(o.installments, 6)) { index ->
+                                Text("${first.plusMonths(index.toLong())}: ${money(o.amountClp)}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
                     Row {
                         TextButton(onClick = { scope.launch { dao.updateObligation(o.copy(paid = !o.paid)) } }) {
                             Text(if (o.paid) "Marcar pendiente" else if (o.kind == "Pago") "Marcar todo pagado" else "Marcar cobrado")
