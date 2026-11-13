@@ -13,7 +13,7 @@ object FinanceBackup {
     suspend fun export(context: Context, uri: Uri, db: FinanceDatabase) = withContext(Dispatchers.IO) {
         val movements = db.financeDao().allMovements()
         val obligations = db.financeDao().allObligations()
-        val root = JSONObject().put("format", "mis-finanzas").put("version", 2)
+        val root = JSONObject().put("format", "mis-finanzas").put("version", 3)
         val ms = JSONArray()
         movements.forEach { m ->
             ms.put(JSONObject().put("account",m.account).put("description",m.description)
@@ -28,10 +28,13 @@ object FinanceBackup {
         root.put("movements",ms).put("obligations",os)
         val balances = context.getSharedPreferences("opening_balances", 0)
         val opening = JSONObject()
-        listOf("Banco de Chile", "Tarjeta Chile", "CMR", "Efectivo").forEach {
+        AccountCatalog.names.forEach {
             opening.put(it, balances.getLong(it, 0L))
         }
         root.put("openingBalances", opening)
+        val selected = JSONArray()
+        AccountCatalog.selected(context).forEach { selected.put(it) }
+        root.put("visibleAccounts", selected)
         val cycles = context.getSharedPreferences("billing_cycles", 0)
         val billing = JSONObject()
         listOf("chileClose", "chileDue", "cmrClose", "cmrDue").forEach {
@@ -47,7 +50,7 @@ object FinanceBackup {
         val raw = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         require(raw.length < 10_000_000) { "Respaldo demasiado grande" }
         val root = JSONObject(raw)
-        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..2) { "Formato de respaldo no reconocido" }
+        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..3) { "Formato de respaldo no reconocido" }
         val ms = root.getJSONArray("movements")
         val os = root.getJSONArray("obligations")
         require(ms.length() <= 10000 && os.length() <= 10000) { "Demasiados registros" }
@@ -64,7 +67,15 @@ object FinanceBackup {
         }
         val opening = root.optJSONObject("openingBalances")
         val billing = root.optJSONObject("billingCycles")
-        val balances = listOf("Banco de Chile", "Tarjeta Chile", "CMR", "Efectivo").associateWith {
+        val savedVisibility = if (root.optInt("version") == 3) {
+            val selected = root.getJSONArray("visibleAccounts")
+            val list = (0 until selected.length()).map { selected.getString(it) }
+            require(list.isNotEmpty() && list.all { it in AccountCatalog.names }) {
+                "La selección de cuentas del respaldo no es válida"
+            }
+            list
+        } else null
+        val balances = AccountCatalog.names.associateWith {
             opening?.optLong(it, 0L) ?: 0L
         }
         val cycleValues = listOf("chileClose", "chileDue", "cmrClose", "cmrDue").mapNotNull { key ->
@@ -81,13 +92,18 @@ object FinanceBackup {
             movements.forEach { db.financeDao().insertMovement(it) }
             obligations.forEach { db.financeDao().insertObligation(it) }
         }
-        if (root.optInt("version") == 2) {
+        if (root.optInt("version") >= 2) {
             val editor = context.getSharedPreferences("opening_balances", 0).edit()
             balances.forEach { (key, value) -> editor.putLong(key, value) }
             editor.commit()
             val cyclesEditor = context.getSharedPreferences("billing_cycles", 0).edit()
             cycleValues.forEach { (key, value) -> cyclesEditor.putInt(key, value) }
             cyclesEditor.commit()
+        }
+        if (savedVisibility != null) {
+            require(AccountCatalog.save(context, savedVisibility)) {
+                "No se pudo recuperar la selección de cuentas"
+            }
         }
     }
 }
