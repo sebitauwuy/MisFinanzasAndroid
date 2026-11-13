@@ -138,6 +138,7 @@ fun FinanceApp(db: FinanceDatabase) {
     var importConfirm by remember { mutableStateOf<android.net.Uri?>(null) }
     var csvPreview by remember { mutableStateOf<List<Movement>>(emptyList()) }
     var csvAccount by remember { mutableStateOf("Banco de Chile") }
+    var csvCutoff by remember { mutableStateOf(LocalDate.now().toString()) }
     var csvMessage by remember { mutableStateOf("") }
     val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
@@ -158,12 +159,16 @@ fun FinanceApp(db: FinanceDatabase) {
                     Text(csvMessage)
                     csvPreview.take(12).forEach { Text("${it.date} · ${it.description} · ${money(it.amountClp)}", style = MaterialTheme.typography.bodySmall) }
                     if (csvPreview.size > 12) Text("… y ${csvPreview.size - 12} más")
-                    Text("Importa solo movimientos posteriores a tu saldo inicial. Se omiten coincidencias exactas ya registradas.", style = MaterialTheme.typography.bodySmall)
+                    Text("ATENCIÓN: Tu saldo inicial ya incluye movimientos anteriores. Importarlos otra vez duplicaría dinero y gastos.", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(csvCutoff, { csvCutoff = it }, label = { Text("Importar solo después de (AAAA-MM-DD)") })
+                    val cutoff = parseDate(csvCutoff)
+                    Text(if (cutoff == null) "Fecha inválida" else "${csvPreview.count { parseDate(it.date)?.isAfter(cutoff) == true }} movimientos posteriores a la fecha de corte", style = MaterialTheme.typography.bodySmall)
                 }
             },
             confirmButton = {
-                TextButton(enabled = csvPreview.isNotEmpty(), onClick = {
-                    val batch = csvPreview.toList()
+                TextButton(enabled = csvPreview.isNotEmpty() && parseDate(csvCutoff) != null, onClick = {
+                    val cutoff = parseDate(csvCutoff)!!
+                    val batch = csvPreview.filter { parseDate(it.date)?.isAfter(cutoff) == true }
                     csvMessage = ""; csvPreview = emptyList()
                     scope.launch {
                         val existing = dao.allMovements().map { listOf(it.account, it.date, it.description, it.amountClp.toString()) }.toMutableSet()
@@ -220,7 +225,7 @@ fun FinanceApp(db: FinanceDatabase) {
                 Surface(tonalElevation = 2.dp) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text("Mis Finanzas · CLP", style = MaterialTheme.typography.titleLarge)
-                        Text("v0.7 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
+                        Text("v0.8.1 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }, bottomBar = {
