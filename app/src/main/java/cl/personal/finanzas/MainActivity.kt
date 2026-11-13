@@ -153,6 +153,8 @@ fun FinanceApp(db: FinanceDatabase) {
         if (uri != null) scope.launch {
             try {
                 csvPreview = StatementImport.read(context, uri, csvAccount)
+                csvCutoff = LocalDate.now().toString()
+                csvRealBalance = ""
                 csvExisting = dao.allMovements()
                 csvMessage = "Cartola leída: ${csvPreview.size} movimientos. Confirma el saldo real y su fecha antes de importar."
             } catch (e: Exception) {
@@ -233,7 +235,7 @@ fun FinanceApp(db: FinanceDatabase) {
             },
             confirmButton = {
                 TextButton(enabled = csvPreview.isNotEmpty() && dateWithinStatement &&
-                    calculatedOpening != null && (newRows.isNotEmpty() || accountHistory.any { parseDate(it.date)?.isAfter(asOf) == false }), onClick = {
+                    calculatedOpening != null && (newRows.isNotEmpty() || (asOf != null && accountHistory.any { parseDate(it.date)?.isAfter(asOf) == false })), onClick = {
                     val account = csvAccount
                     val target = calculatedOpening!!
                     val batch = newRows.toList()
