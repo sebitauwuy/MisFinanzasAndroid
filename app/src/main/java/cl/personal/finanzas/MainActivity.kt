@@ -29,6 +29,7 @@ import androidx.room.withTransaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.time.LocalDate
@@ -126,8 +127,12 @@ fun FinanceApp(db: FinanceDatabase) {
     LaunchedEffect(lockEnabled) {
         if (lockEnabled && !unlocked) requestUnlock()
     }
-    val loadedMovements by dao.movements().collectAsState(initial = null)
-    val loadedObligations by dao.obligations().collectAsState(initial = null)
+    val loadedMovements by remember(dao) {
+        dao.movements().map<List<Movement>, List<Movement>?> { it }
+    }.collectAsState(initial = null)
+    val loadedObligations by remember(dao) {
+        dao.obligations().map<List<Obligation>, List<Obligation>?> { it }
+    }.collectAsState(initial = null)
     val movements = loadedMovements.orEmpty()
     val obligations = loadedObligations.orEmpty()
     var tab by remember { mutableStateOf(0) }
