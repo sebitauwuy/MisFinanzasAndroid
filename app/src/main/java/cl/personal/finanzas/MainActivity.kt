@@ -94,7 +94,7 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
-private val accounts = listOf("Banco de Chile", "Tarjeta Chile", "CMR", "Efectivo")
+private val accounts = AccountCatalog.names
 private val clp = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CL"))
 private fun money(value: Long) = clp.format(value)
 private fun parseDate(value: String): LocalDate? = try { LocalDate.parse(value) } catch (_: Exception) { null }
@@ -126,17 +126,39 @@ fun FinanceApp(db: FinanceDatabase) {
     LaunchedEffect(lockEnabled) {
         if (lockEnabled && !unlocked) requestUnlock()
     }
-    val movements by dao.movements().collectAsState(initial = emptyList())
-    val obligations by dao.obligations().collectAsState(initial = emptyList())
+    val loadedMovements by dao.movements().collectAsState(initial = null)
+    val loadedObligations by dao.obligations().collectAsState(initial = null)
+    val movements = loadedMovements.orEmpty()
+    val obligations = loadedObligations.orEmpty()
     var tab by remember { mutableStateOf(0) }
     val balancePrefs = remember { context.getSharedPreferences("opening_balances", 0) }
     var openingBalances by remember { mutableStateOf(accounts.associateWith { balancePrefs.getLong(it, 0L) }) }
+    var accountConfigured by remember { mutableStateOf(AccountCatalog.isConfigured(context)) }
+    var visibleAccounts by remember { mutableStateOf(AccountCatalog.selected(context)) }
+    var managingAccounts by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val billingPrefs = remember { context.getSharedPreferences("billing_cycles", 0) }
     var chileClose by remember { mutableStateOf(billingPrefs.getInt("chileClose", 28).toString()) }
     var chileDue by remember { mutableStateOf(billingPrefs.getInt("chileDue", 5).toString()) }
     var cmrClose by remember { mutableStateOf(billingPrefs.getInt("cmrClose", 12).toString()) }
     var cmrDue by remember { mutableStateOf(billingPrefs.getInt("cmrDue", 25).toString()) }
+    // Migración no destructiva de instalaciones anteriores a la selección de cuentas.
+    LaunchedEffect(loadedMovements, loadedObligations) {
+        if (!accountConfigured && loadedMovements != null && loadedObligations != null) {
+            val previousData = movements.isNotEmpty() || obligations.isNotEmpty() ||
+                balancePrefs.all.isNotEmpty() || billingPrefs.all.isNotEmpty()
+            if (previousData) {
+                val fromHistory = (movements.map { it.account } + obligations.map { it.account }).toSet()
+                val fromBalances = accounts.filter { balancePrefs.getLong(it, 0L) != 0L }.toSet()
+                val recovered = accounts.filter { it in fromHistory || it in fromBalances }
+                    .ifEmpty { listOf("Banco de Chile") }
+                if (AccountCatalog.save(context, recovered)) {
+                    visibleAccounts = recovered
+                    accountConfigured = true
+                }
+            }
+        }
+    }
     var importConfirm by remember { mutableStateOf<android.net.Uri?>(null) }
     var resetAccount by remember { mutableStateOf<String?>(null) }
     var resetAllConfirm by remember { mutableStateOf(false) }
@@ -184,6 +206,12 @@ fun FinanceApp(db: FinanceDatabase) {
     }
     var csvPreview by remember { mutableStateOf<List<Movement>>(emptyList()) }
     var csvAccount by remember { mutableStateOf("Banco de Chile") }
+    LaunchedEffect(visibleAccounts) {
+        if (visibleAccounts.isNotEmpty() && csvAccount !in visibleAccounts) {
+            csvAccount = visibleAccounts.first()
+        }
+    }
+
     var csvCutoff by remember { mutableStateOf(LocalDate.now().toString()) }
     var csvRealBalance by remember { mutableStateOf("") }
     var csvMessage by remember { mutableStateOf("") }
@@ -380,6 +408,8 @@ fun FinanceApp(db: FinanceDatabase) {
                 scope.launch {
                     try { FinanceBackup.import(context, uri, db)
                         openingBalances = accounts.associateWith { balancePrefs.getLong(it, 0L) }
+                        visibleAccounts = AccountCatalog.selected(context)
+                        accountConfigured = AccountCatalog.isConfigured(context)
                         chileClose = billingPrefs.getInt("chileClose", 28).toString()
                         chileDue = billingPrefs.getInt("chileDue", 5).toString()
                         cmrClose = billingPrefs.getInt("cmrClose", 12).toString()
@@ -398,12 +428,27 @@ fun FinanceApp(db: FinanceDatabase) {
                 Spacer(Modifier.height(16.dp))
                 Button(onClick = requestUnlock) { Text("Desbloquear") }
             }
+        } else if (loadedMovements == null || loadedObligations == null) {
+            Box(Modifier.fillMaxSize()) { CircularProgressIndicator() }
+        } else if (!accountConfigured || managingAccounts) {
+            AccountSelectionScreen(
+                selected = visibleAccounts,
+                initialSetup = !accountConfigured,
+                onSave = { chosen ->
+                    if (AccountCatalog.save(context, chosen)) {
+                        visibleAccounts = chosen
+                        accountConfigured = true
+                        managingAccounts = false
+                    } else Toast.makeText(context, "Selecciona al menos una cuenta", Toast.LENGTH_LONG).show()
+                },
+                onCancel = { managingAccounts = false }
+            )
         } else {
             Scaffold(topBar = {
                 Surface(tonalElevation = 2.dp) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text("Mis Finanzas · CLP", style = MaterialTheme.typography.titleLarge)
-                        Text("v0.8.5 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
+                        Text("v0.9 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }, bottomBar = {
@@ -415,15 +460,19 @@ fun FinanceApp(db: FinanceDatabase) {
             }) { pad ->
                 Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp).then(if (tab == 4) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
                     when (tab) {
-                        0 -> Dashboard(movements, obligations, openingBalances, onNavigate = { tab = it }) { account, amount ->
+                        0 -> Dashboard(movements, obligations, openingBalances, visibleAccounts, onNavigate = { tab = it }) { account, amount ->
                             balancePrefs.edit().putLong(account, amount).apply()
                             openingBalances = openingBalances + (account to amount)
                         }
-                        1 -> MovementScreen(movements, dao, scope)
-                        2 -> ObligationScreen(obligations.filter { it.kind == "Pago" }, "Pago", dao, scope)
-                        3 -> ObligationScreen(obligations.filter { it.kind == "Reembolso" }, "Reembolso", dao, scope)
+                        1 -> MovementScreen(movements, dao, scope, visibleAccounts)
+                        2 -> ObligationScreen(obligations.filter { it.kind == "Pago" }, "Pago", dao, scope, visibleAccounts)
+                        3 -> ObligationScreen(obligations.filter { it.kind == "Reembolso" }, "Reembolso", dao, scope, visibleAccounts)
                         else -> {
                             Spacer(Modifier.height(16.dp))
+                            Text("Mis cuentas activas", style = MaterialTheme.typography.titleLarge)
+                            Text(visibleAccounts.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+                            Button(onClick = { managingAccounts = true }) { Text("Agregar u ocultar cuentas") }
+                            Spacer(Modifier.height(18.dp))
                             Text("Seguridad", style = MaterialTheme.typography.headlineSmall)
                             Text("El bloqueo usa la autenticación configurada en tu Samsung (PIN, patrón, contraseña o biometría cuando esté disponible).")
                             Spacer(Modifier.height(16.dp))
@@ -457,7 +506,7 @@ fun FinanceApp(db: FinanceDatabase) {
                             Spacer(Modifier.height(18.dp))
                             Text("Importar cartola CSV / TXT", style = MaterialTheme.typography.titleLarge)
                             Text("Importación local con vista previa. Formato: fecha, descripción, monto. Usa montos negativos para cargos y positivos para abonos. Acepta fechas AAAA-MM-DD o DD/MM/AAAA, separador coma o punto y coma. No admite PDF ni Excel todavía.", style = MaterialTheme.typography.bodySmall)
-                            AccountPicker(csvAccount) { csvAccount = it }
+                            AccountPicker(csvAccount, { csvAccount = it }, visibleAccounts)
                             Button(onClick = { csvLauncher.launch(arrayOf("text/*", "application/csv", "application/octet-stream", "*/*")) }) { Text("Elegir cartola CSV o TXT") }
                             Text("Comprueba que los datos estén correctos antes de confirmar. No se sube el archivo a servidores.", style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.height(18.dp))
@@ -507,12 +556,13 @@ fun Dashboard(
     movements: List<Movement>,
     obligations: List<Obligation>,
     openingBalances: Map<String, Long>,
+    visibleAccounts: List<String>,
     onNavigate: (Int) -> Unit,
     onBalanceChange: (String, Long) -> Unit
 ) {
     val today = LocalDate.now()
     val month = YearMonth.from(today)
-    val cashAccounts = listOf("Banco de Chile", "Efectivo")
+    val cashAccounts = visibleAccounts.filter { AccountCatalog.isCash(it) }
     val movementsToDate = movements.filter { parseDate(it.date)?.isAfter(today) != true }
     val balance = cashAccounts.sumOf { account ->
         (openingBalances[account] ?: 0L) + movementsToDate.filter { it.account == account }.sumOf { it.amountClp }
@@ -631,7 +681,7 @@ fun Dashboard(
             Text("Mis cuentas", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text("Edita el saldo inicial sin alterar tus movimientos.", style = MaterialTheme.typography.bodySmall)
         }
-        items(accounts) { account ->
+        items(visibleAccounts) { account ->
             val amount = (openingBalances[account] ?: 0L) + movementsToDate.filter { it.account == account }.sumOf { it.amountClp }
             Card(shape = RoundedCornerShape(14.dp)) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -692,21 +742,21 @@ fun SummaryCard(label: String, value: String) {
 }
 
 @Composable
-fun AccountPicker(value: String, onChange: (String) -> Unit) {
+fun AccountPicker(value: String, onChange: (String) -> Unit, choices: List<String> = accounts) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) { Text("Cuenta: $value") }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            accounts.forEach { a -> DropdownMenuItem(text = { Text(a) }, onClick = { onChange(a); expanded = false }) }
+            choices.forEach { a -> DropdownMenuItem(text = { Text(a) }, onClick = { onChange(a); expanded = false }) }
         }
     }
 }
 
 @Composable
-fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.coroutines.CoroutineScope) {
+fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.coroutines.CoroutineScope, availableAccounts: List<String>) {
     var description by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
-    var account by remember { mutableStateOf(accounts.first()) }
+    var account by remember(availableAccounts) { mutableStateOf(availableAccounts.firstOrNull() ?: "Banco de Chile") }
     var category by remember { mutableStateOf("General") }
     var expense by remember { mutableStateOf(true) }
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
@@ -717,7 +767,7 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
             Text("Registrar movimiento", style = MaterialTheme.typography.titleLarge)
             OutlinedTextField(description, { description = it }, label = { Text("Descripción") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text("Monto CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-            AccountPicker(account) { account = it }
+            AccountPicker(account, { account = it }, availableAccounts)
             OutlinedTextField(category, { category = it }, label = { Text("Categoría") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(date, { date = it }, label = { Text("Fecha AAAA-MM-DD") }, modifier = Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -737,7 +787,7 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
             Box {
                 OutlinedButton(onClick = { expandedFilter = true }) { Text("Cuenta: $selectedAccount") }
                 DropdownMenu(expanded = expandedFilter, onDismissRequest = { expandedFilter = false }) {
-                    (listOf("Todas") + accounts).forEach { name ->
+                    (listOf("Todas") + availableAccounts + movements.map { it.account }).distinct().forEach { name ->
                         DropdownMenuItem(text = { Text(name) }, onClick = { selectedAccount = name; expandedFilter = false })
                     }
                 }
@@ -762,10 +812,10 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
 }
 
 @Composable
-fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, scope: kotlinx.coroutines.CoroutineScope) {
+fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, scope: kotlinx.coroutines.CoroutineScope, availableAccounts: List<String>) {
     var title by remember(kind) { mutableStateOf("") }
     var amount by remember(kind) { mutableStateOf("") }
-    var account by remember(kind) { mutableStateOf(if (kind == "Pago") "CMR" else "Banco de Chile") }
+    var account by remember(kind, availableAccounts) { mutableStateOf(listOf(if (kind == "Pago") "CMR" else "Banco de Chile").firstOrNull { it in availableAccounts } ?: availableAccounts.firstOrNull() ?: "Banco de Chile") }
     var date by remember(kind) { mutableStateOf(LocalDate.now().toString()) }
     var installments by remember(kind) { mutableStateOf("1") }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
@@ -774,7 +824,7 @@ fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, sco
             Text(if (kind == "Pago") "Ingresa el valor de CADA cuota y la fecha del primer vencimiento. Para gastos recurrentes, registra cada mes como un pago separado." else "Registra dinero que otra persona debe devolverte.", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(title, { title = it }, label = { Text(if (kind == "Pago") "Compra o cuenta" else "Persona y motivo") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text(if (kind == "Pago") "Valor de cada cuota CLP" else "Monto a cobrar CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-            AccountPicker(account) { account = it }
+            AccountPicker(account, { account = it }, availableAccounts)
             OutlinedTextField(date, { date = it }, label = { Text("Primer vencimiento AAAA-MM-DD") }, modifier = Modifier.fillMaxWidth())
             if (kind == "Pago") OutlinedTextField(installments, { installments = it.filter(Char::isDigit) }, label = { Text("Cuotas pendientes") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             val count = if (kind == "Pago") installments.toIntOrNull() ?: 0 else 1
