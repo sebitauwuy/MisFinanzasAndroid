@@ -8,6 +8,7 @@ data class AccountOption(val name: String, val type: String, val cashBalance: Bo
 object AccountCatalog {
     val options = listOf(
         AccountOption("Banco de Chile", "Banco", true),
+        AccountOption("Banco Falabella", "Banco", true),
         AccountOption("BancoEstado", "Banco", true),
         AccountOption("Santander", "Banco", true),
         AccountOption("Tenpo", "Billetera / cuenta", true),
