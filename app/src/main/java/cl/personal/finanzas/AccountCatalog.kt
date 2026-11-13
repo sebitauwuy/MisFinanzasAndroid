@@ -18,6 +18,7 @@ object AccountCatalog {
         AccountOption("CMR", "Tarjetas de crédito", false),
         AccountOption("Crédito Mercado Pago", "Tarjetas de crédito", false),
         AccountOption("Crédito MACH", "Tarjetas de crédito", false),
+        AccountOption("Crédito Tenpo", "Tarjetas de crédito", false),
         AccountOption("Crédito Santander", "Tarjetas de crédito", false),
         AccountOption("Efectivo", "Cuentas y billeteras", true)
     )
