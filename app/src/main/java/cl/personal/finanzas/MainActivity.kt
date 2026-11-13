@@ -177,7 +177,7 @@ fun FinanceApp(db: FinanceDatabase) {
                 Surface(tonalElevation = 2.dp) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text("Mis Finanzas · CLP", style = MaterialTheme.typography.titleLarge)
-                        Text("v0.6 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
+                        Text("v0.7 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }, bottomBar = {
@@ -213,6 +213,21 @@ fun FinanceApp(db: FinanceDatabase) {
                             Text("Si activas el bloqueo, se solicitará al iniciar de nuevo la app. La base de datos local todavía no tiene cifrado de archivo.", style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { unlocked = false; requestUnlock() }, enabled = lockEnabled) { Text("Bloquear ahora") }
                             Spacer(Modifier.height(20.dp))
+                            Text("Conexiones bancarias", style = MaterialTheme.typography.titleLarge)
+                            Text("Preparación para acceso autorizado · No hay bancos conectados", style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.height(8.dp))
+                            listOf("Banco de Chile", "CMR Falabella").forEach { bank ->
+                                Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                    Column(Modifier.padding(14.dp)) {
+                                        Text(bank, style = MaterialTheme.typography.titleMedium)
+                                        Text("Sin conexión · Los movimientos siguen siendo manuales", style = MaterialTheme.typography.bodySmall)
+                                        Text("La conexión automática requerirá un proveedor autorizado, consentimiento explícito y una integración disponible.", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                            Text("Seguridad de la futura integración", style = MaterialTheme.typography.titleMedium)
+                            Text("Nunca ingreses tu clave bancaria, PIN, coordenadas ni códigos SMS en Mis Finanzas. Una futura autorización deberá realizarse mediante el canal seguro del proveedor y permitir revocación.", style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.height(18.dp))
                             Text("Ciclos de tarjetas (días estimados)", style = MaterialTheme.typography.titleMedium)
                             Text("Configura los días de corte y vencimiento según tus estados de cuenta. No se calculan automáticamente.", style = MaterialTheme.typography.bodySmall)
                             OutlinedTextField(chileClose, { chileClose = it.filter(Char::isDigit) }, label = { Text("Banco de Chile: día de facturación") })
