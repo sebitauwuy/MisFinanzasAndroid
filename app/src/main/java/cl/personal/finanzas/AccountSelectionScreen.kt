@@ -33,7 +33,7 @@ fun AccountSelectionScreen(
                     Checkbox(checked = option.name in checked, onCheckedChange = { enabled ->
                         checked = if (enabled) checked + option.name else checked - option.name
                     })
-                    Text(option.name, style = MaterialTheme.typography.bodyLarge)
+                    Text(option.displayName, style = MaterialTheme.typography.bodyLarge)
                 }
             }
         }
