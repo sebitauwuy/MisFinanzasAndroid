@@ -456,7 +456,7 @@ fun FinanceApp(db: FinanceDatabase) {
                 Surface(tonalElevation = 2.dp) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text("Mis Finanzas · CLP", style = MaterialTheme.typography.titleLarge)
-                        Text("v0.9.2 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
+                        Text("v0.9.3 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }, bottomBar = {
