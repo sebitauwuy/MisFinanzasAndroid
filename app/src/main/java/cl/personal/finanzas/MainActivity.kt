@@ -520,11 +520,13 @@ fun FinanceApp(db: FinanceDatabase) {
                         3 -> ObligationScreen(obligations.filter { it.kind == "Reembolso" }, "Reembolso", dao, scope, visibleAccounts)
                         else -> {
                             Spacer(Modifier.height(16.dp))
-                            Text("Mis cuentas activas", style = MaterialTheme.typography.titleLarge)
+                            FinanceSettingsGroup("Mis cuentas", "Selecciona qué cuentas quieres ver", expandedAtStart = true) {
                             Text(visibleAccounts.joinToString(" · ") { AccountCatalog.displayName(it) }, style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { managingAccounts = true }) { Text("Agregar u ocultar cuentas") }
                             Spacer(Modifier.height(18.dp))
-                            Text("Seguridad", style = MaterialTheme.typography.headlineSmall)
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            FinanceSettingsGroup("Privacidad y seguridad", "Bloqueo con PIN o biometría") {
                             Text("El bloqueo usa la autenticación configurada en tu Samsung (PIN, patrón, contraseña o biometría cuando esté disponible).")
                             Spacer(Modifier.height(16.dp))
                             Row {
@@ -539,7 +541,9 @@ fun FinanceApp(db: FinanceDatabase) {
                             Text("Si activas el bloqueo, se solicitará al iniciar de nuevo la app. La base de datos local todavía no tiene cifrado de archivo.", style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { unlocked = false; requestUnlock() }, enabled = lockEnabled) { Text("Bloquear ahora") }
                             Spacer(Modifier.height(20.dp))
-                            Text("Conexiones bancarias", style = MaterialTheme.typography.titleLarge)
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            FinanceSettingsGroup("Conexiones bancarias", "Estado de conexiones autorizadas") {
                             Text("Preparación para acceso autorizado · No hay bancos conectados", style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.height(8.dp))
                             visibleAccounts.filter { it != "Efectivo" }.forEach { bank ->
@@ -555,7 +559,9 @@ fun FinanceApp(db: FinanceDatabase) {
                             Text("Nunca ingreses tu clave bancaria, PIN, coordenadas ni códigos SMS en Mis Finanzas. Una futura autorización deberá realizarse mediante el canal seguro del proveedor y permitir revocación.", style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.height(18.dp))
                             Spacer(Modifier.height(18.dp))
-                            Text("Importar cartola de débito (XLS / TXT / CSV)", style = MaterialTheme.typography.titleLarge)
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            FinanceSettingsGroup("Importar documentos", "Cartolas y resúmenes PDF", expandedAtStart = true) {
                             Text("Lee XLS binario de débito Banco Falabella, TXT de Banco de Chile y CSV genérico (fecha, descripción, monto). Selecciona la institución correcta. La cartola de débito no representa la deuda de CMR.", style = MaterialTheme.typography.bodySmall)
                             AccountPicker(csvAccount, { csvAccount = it }, visibleAccounts)
                             Button(onClick = { csvLauncher.launch(arrayOf("application/vnd.ms-excel", "text/*", "application/csv", "application/octet-stream", "*/*")) }) { Text("Elegir cartola CSV o TXT") }
@@ -565,7 +571,9 @@ fun FinanceApp(db: FinanceDatabase) {
                             Text("Banco de Chile: consulta cupo utilizado, disponible y total desde el PDF de movimientos no facturados. Solo lectura; no cambia tus saldos.", style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { cardPdfLauncher.launch(arrayOf("application/pdf")) }) { Text("Elegir PDF de tarjeta") }
                             Spacer(Modifier.height(18.dp))
-                            Text("Ciclos de tarjetas (días estimados)", style = MaterialTheme.typography.titleMedium)
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            FinanceSettingsGroup("Fechas de tarjetas", "Facturación y vencimientos") {
                             Text("Configura los días de corte y vencimiento según tus estados de cuenta. No se calculan automáticamente.", style = MaterialTheme.typography.bodySmall)
                             OutlinedTextField(chileClose, { chileClose = it.filter(Char::isDigit) }, label = { Text("Banco de Chile: día de facturación") })
                             OutlinedTextField(chileDue, { chileDue = it.filter(Char::isDigit) }, label = { Text("Banco de Chile: día de pago") })
@@ -578,7 +586,9 @@ fun FinanceApp(db: FinanceDatabase) {
                                 Toast.makeText(context, "Ciclos guardados", Toast.LENGTH_SHORT).show()
                             }) { Text("Guardar ciclos") }
                             Spacer(Modifier.height(16.dp))
-                            Text("Administración de saldos", style = MaterialTheme.typography.titleLarge)
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            FinanceSettingsGroup("Conciliación y reinicio", "Corrige saldos o limpia una cuenta") {
                             OutlinedButton(onClick = { maintenanceOpen = !maintenanceOpen }, modifier = Modifier.fillMaxWidth()) {
                                 Text(if (maintenanceOpen) "Ocultar herramientas de cuentas ▲" else "Borrar o conciliar una cuenta ▼")
                             }
@@ -616,10 +626,13 @@ fun FinanceApp(db: FinanceDatabase) {
                                 }
                             }
                             Spacer(Modifier.height(16.dp))
-                            Text("Copias de seguridad", style = MaterialTheme.typography.titleMedium)
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            FinanceSettingsGroup("Respaldos", "Exporta o restaura tus registros") {
                             Text("El archivo JSON no está cifrado: guárdalo en un lugar privado.", style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { exportLauncher.launch("mis-finanzas-respaldo.json") }) { Text("Exportar respaldo") }
                             OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }) { Text("Restaurar respaldo") }
+                            }
                         }
                     }
                 }
