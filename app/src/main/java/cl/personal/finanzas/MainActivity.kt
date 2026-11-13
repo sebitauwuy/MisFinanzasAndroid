@@ -164,13 +164,26 @@ fun FinanceApp(db: FinanceDatabase) {
     if (csvMessage.isNotBlank()) {
         val asOf = parseDate(csvCutoff)
         val realBalance = csvRealBalance.trim().toLongOrNull()
+        val statementDates = csvPreview.mapNotNull { parseDate(it.date) }
+        val firstStatementDate = statementDates.minOrNull()
+        val lastStatementDate = statementDates.maxOrNull()
+        val dateWithinStatement = asOf != null && !asOf.isAfter(LocalDate.now()) &&
+            (firstStatementDate == null || !asOf.isBefore(firstStatementDate))
         val accountHistory = csvExisting.filter { it.account == csvAccount }
-        val existingKeys = accountHistory.map { listOf(it.date, it.description, it.amountClp.toString()) }.toSet()
+        // Respetar transacciones legítimas idénticas; comparar cantidad de ocurrencias.
+        fun transactionKey(row: Movement) = listOf(row.date, row.description, row.amountClp.toString())
+        val existingCounts = accountHistory.groupingBy { transactionKey(it) }.eachCount()
+        val seenCounts = mutableMapOf<List<String>, Int>()
         val newRows = csvPreview.filter { row ->
             val date = parseDate(row.date)
-            date != null && asOf != null && !date.isAfter(asOf) &&
-                listOf(row.date, row.description, row.amountClp.toString()) !in existingKeys
-        }.distinctBy { listOf(it.date, it.description, it.amountClp.toString()) }
+            dateWithinStatement && date != null && !date.isAfter(asOf!!) &&
+                run {
+                    val key = transactionKey(row)
+                    val occurrence = (seenCounts[key] ?: 0) + 1
+                    seenCounts[key] = occurrence
+                    occurrence > (existingCounts[key] ?: 0)
+                }
+        }
         val recordedAtDate = accountHistory.filter { row ->
             asOf != null && parseDate(row.date)?.isAfter(asOf) == false
         }.sumOf { it.amountClp }
@@ -188,6 +201,8 @@ fun FinanceApp(db: FinanceDatabase) {
             text = {
                 Column(Modifier.heightIn(max = 390.dp).verticalScroll(rememberScrollState())) {
                     Text(csvMessage)
+                    if (firstStatementDate != null && lastStatementDate != null)
+                        Text("Fechas de la cartola: $firstStatementDate a $lastStatementDate", style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(csvCutoff, { csvCutoff = it },
                         label = { Text("Fecha del saldo bancario (AAAA-MM-DD)") },
                         modifier = Modifier.fillMaxWidth())
@@ -195,11 +210,17 @@ fun FinanceApp(db: FinanceDatabase) {
                         label = { Text("Saldo real del banco (CLP)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth())
-                    if (asOf == null) Text("Fecha inválida")
+                    if (asOf == null) Text("Fecha inválida", color = MaterialTheme.colorScheme.error)
+                    else if (asOf.isAfter(LocalDate.now())) Text("La fecha del saldo no puede ser futura.", color = MaterialTheme.colorScheme.error)
+                    else if (firstStatementDate != null && asOf.isBefore(firstStatementDate))
+                        Text("La fecha es anterior a todos los movimientos de la cartola. Elige una fecha igual o posterior a $firstStatementDate.", color = MaterialTheme.colorScheme.error)
                     else if (realBalance == null) Text("Ingresa el saldo real, sin puntos ni símbolo de pesos.")
                     else if (calculatedOpening == null) Text("El monto excede el rango admitido.")
                     else {
                         Text("Movimientos nuevos hasta la fecha: ${newRows.size}")
+                        Text("Movimientos del archivo posteriores a la fecha: ${csvPreview.count { parseDate(it.date)?.isAfter(asOf) == true }}")
+                        if (newRows.isEmpty() && accountHistory.none { parseDate(it.date)?.isAfter(asOf) == false })
+                            Text("No hay movimientos para conciliar en esta fecha. Cambia la fecha antes de guardar.", color = MaterialTheme.colorScheme.error)
                         Text("Movimientos ya registrados hasta la fecha: ${accountHistory.count { parseDate(it.date)?.isAfter(asOf) == false }}")
                         Text("Variación total de movimientos: ${money(recordedAtDate + newAtDate)}")
                         Text("Saldo inicial calculado: ${money(calculatedOpening)}", style = MaterialTheme.typography.titleMedium)
@@ -211,7 +232,8 @@ fun FinanceApp(db: FinanceDatabase) {
                 }
             },
             confirmButton = {
-                TextButton(enabled = csvPreview.isNotEmpty() && calculatedOpening != null && asOf != null, onClick = {
+                TextButton(enabled = csvPreview.isNotEmpty() && dateWithinStatement &&
+                    calculatedOpening != null && (newRows.isNotEmpty() || accountHistory.any { parseDate(it.date)?.isAfter(asOf) == false }), onClick = {
                     val account = csvAccount
                     val target = calculatedOpening!!
                     val batch = newRows.toList()
@@ -219,16 +241,19 @@ fun FinanceApp(db: FinanceDatabase) {
                     scope.launch {
                         try {
                             db.withTransaction {
-                                val currentKeys = dao.allMovements().filter { it.account == account }
-                                    .map { listOf(it.date, it.description, it.amountClp.toString()) }.toMutableSet()
-                                batch.forEach { row ->
-                                    val key = listOf(row.date, row.description, row.amountClp.toString())
-                                    if (currentKeys.add(key)) dao.insertMovement(row)
-                                }
+                                // La lista batch ya excluye los registros existentes con conteo de ocurrencias.
+                                batch.forEach { row -> dao.insertMovement(row) }
                             }
-                            balancePrefs.edit().putLong(account, target).commit()
+                            if (!balancePrefs.edit().putLong(account, target).commit())
+                                error("No se pudo guardar el saldo inicial")
                             openingBalances = openingBalances + (account to target)
-                            Toast.makeText(context, "Cartola conciliada. Revisa el saldo.", Toast.LENGTH_LONG).show()
+                            val persisted = dao.allMovements().filter { it.account == account &&
+                                parseDate(it.date)?.isAfter(asOf!!) == false }.sumOf { it.amountClp }
+                            val verified = target + persisted
+                            Toast.makeText(context,
+                                if (verified == realBalance) "Conciliado a la fecha: ${money(verified)}"
+                                else "Revisa el saldo: diferencia ${money(realBalance!! - verified)}",
+                                Toast.LENGTH_LONG).show()
                         } catch (e: Exception) {
                             Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                         }
@@ -337,7 +362,7 @@ fun FinanceApp(db: FinanceDatabase) {
                 Surface(tonalElevation = 2.dp) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text("Mis Finanzas · CLP", style = MaterialTheme.typography.titleLarge)
-                        Text("v0.8.3 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
+                        Text("v0.8.4 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }, bottomBar = {
@@ -443,10 +468,11 @@ fun Dashboard(
     val today = LocalDate.now()
     val month = YearMonth.from(today)
     val cashAccounts = listOf("Banco de Chile", "Efectivo")
+    val movementsToDate = movements.filter { parseDate(it.date)?.isAfter(today) != true }
     val balance = cashAccounts.sumOf { account ->
-        (openingBalances[account] ?: 0L) + movements.filter { it.account == account }.sumOf { it.amountClp }
+        (openingBalances[account] ?: 0L) + movementsToDate.filter { it.account == account }.sumOf { it.amountClp }
     }
-    val monthMovements = movements.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == month } == true }
+    val monthMovements = movementsToDate.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == month } == true }
     val income = monthMovements.filter { it.amountClp > 0 && it.account in cashAccounts }.sumOf { it.amountClp }
     val expenses = -monthMovements.filter { it.amountClp < 0 && it.account in cashAccounts }.sumOf { it.amountClp }
     val pending = obligations.filter { it.kind == "Pago" && !it.paid }.sumOf { it.amountClp * (it.installments - it.paidCount).coerceAtLeast(0) }
@@ -561,7 +587,7 @@ fun Dashboard(
             Text("Edita el saldo inicial sin alterar tus movimientos.", style = MaterialTheme.typography.bodySmall)
         }
         items(accounts) { account ->
-            val amount = (openingBalances[account] ?: 0L) + movements.filter { it.account == account }.sumOf { it.amountClp }
+            val amount = (openingBalances[account] ?: 0L) + movementsToDate.filter { it.account == account }.sumOf { it.amountClp }
             Card(shape = RoundedCornerShape(14.dp)) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
@@ -581,7 +607,7 @@ fun Dashboard(
             Text("Ingresos y gastos · últimos 6 meses", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             (5 downTo 0).forEach { offset ->
                 val ym = month.minusMonths(offset.toLong())
-                val data = movements.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == ym } == true && it.account in cashAccounts }
+                val data = movementsToDate.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == ym } == true && it.account in cashAccounts }
                 val earned = data.filter { it.amountClp > 0 }.sumOf { it.amountClp }
                 val spent = -data.filter { it.amountClp < 0 }.sumOf { it.amountClp }
                 Text("${ym.monthValue}/${ym.year} · +${money(earned)} / -${money(spent)}", style = MaterialTheme.typography.bodySmall)
