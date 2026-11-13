@@ -451,7 +451,7 @@ fun FinanceApp(db: FinanceDatabase) {
                 Surface(tonalElevation = 2.dp) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text("Mis Finanzas · CLP", style = MaterialTheme.typography.titleLarge)
-                        Text("v0.9 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
+                        Text("v0.9.1 · Datos locales · Sin conexión bancaria", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }, bottomBar = {
@@ -507,10 +507,10 @@ fun FinanceApp(db: FinanceDatabase) {
                             Text("Nunca ingreses tu clave bancaria, PIN, coordenadas ni códigos SMS en Mis Finanzas. Una futura autorización deberá realizarse mediante el canal seguro del proveedor y permitir revocación.", style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.height(18.dp))
                             Spacer(Modifier.height(18.dp))
-                            Text("Importar cartola CSV / TXT", style = MaterialTheme.typography.titleLarge)
-                            Text("Compatible con TXT de Banco de Chile y CSV genérico de tres columnas: fecha, descripción, monto. Para otras instituciones necesitaremos sus formatos de cartola. XLS aún no está disponible.", style = MaterialTheme.typography.bodySmall)
+                            Text("Importar cartola de débito (XLS / TXT / CSV)", style = MaterialTheme.typography.titleLarge)
+                            Text("Lee XLS binario de débito Banco Falabella, TXT de Banco de Chile y CSV genérico (fecha, descripción, monto). Selecciona la institución correcta. La cartola de débito no representa la deuda de CMR.", style = MaterialTheme.typography.bodySmall)
                             AccountPicker(csvAccount, { csvAccount = it }, visibleAccounts)
-                            Button(onClick = { csvLauncher.launch(arrayOf("text/*", "application/csv", "application/octet-stream", "*/*")) }) { Text("Elegir cartola CSV o TXT") }
+                            Button(onClick = { csvLauncher.launch(arrayOf("application/vnd.ms-excel", "text/*", "application/csv", "application/octet-stream", "*/*")) }) { Text("Elegir cartola CSV o TXT") }
                             Text("Comprueba que los datos estén correctos antes de confirmar. No se sube el archivo a servidores.", style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.height(18.dp))
                             Text("Leer PDF de tarjeta de crédito", style = MaterialTheme.typography.titleLarge)
