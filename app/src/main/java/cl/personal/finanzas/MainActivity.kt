@@ -49,7 +49,8 @@ data class Obligation(
     val dueDate: String,
     val kind: String,
     val installments: Int = 1,
-    val paid: Boolean = false
+    val paid: Boolean = false,
+    val paidCount: Int = 0
 )
 
 @Dao
@@ -69,7 +70,7 @@ interface FinanceDao {
     @Query("DELETE FROM obligations") suspend fun clearObligations()
 }
 
-@Database(entities = [Movement::class, Obligation::class], version = 2, exportSchema = false)
+@Database(entities = [Movement::class, Obligation::class], version = 3, exportSchema = false)
 abstract class FinanceDatabase : RoomDatabase() {
     abstract fun financeDao(): FinanceDao
 }
@@ -77,6 +78,12 @@ abstract class FinanceDatabase : RoomDatabase() {
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS obligations (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, title TEXT NOT NULL, account TEXT NOT NULL, amountClp INTEGER NOT NULL, dueDate TEXT NOT NULL, kind TEXT NOT NULL, installments INTEGER NOT NULL, paid INTEGER NOT NULL)")
+    }
+}
+
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE obligations ADD COLUMN paidCount INTEGER NOT NULL DEFAULT 0")
     }
 }
 
@@ -89,7 +96,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val db = Room.databaseBuilder(applicationContext, FinanceDatabase::class.java, "finanzas.db")
-            .addMigrations(MIGRATION_1_2).build()
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
         setContent { FinanceApp(db) }
     }
 }
@@ -118,6 +125,11 @@ fun FinanceApp(db: FinanceDatabase) {
     val balancePrefs = remember { context.getSharedPreferences("opening_balances", 0) }
     var openingBalances by remember { mutableStateOf(accounts.associateWith { balancePrefs.getLong(it, 0L) }) }
     val scope = rememberCoroutineScope()
+    val billingPrefs = remember { context.getSharedPreferences("billing_cycles", 0) }
+    var chileClose by remember { mutableStateOf(billingPrefs.getInt("chileClose", 28).toString()) }
+    var chileDue by remember { mutableStateOf(billingPrefs.getInt("chileDue", 5).toString()) }
+    var cmrClose by remember { mutableStateOf(billingPrefs.getInt("cmrClose", 12).toString()) }
+    var cmrDue by remember { mutableStateOf(billingPrefs.getInt("cmrDue", 25).toString()) }
     var importConfirm by remember { mutableStateOf<android.net.Uri?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch {
@@ -136,7 +148,13 @@ fun FinanceApp(db: FinanceDatabase) {
                 val uri = importConfirm!!
                 importConfirm = null
                 scope.launch {
-                    try { FinanceBackup.import(context, uri, db); Toast.makeText(context, "Respaldo restaurado", Toast.LENGTH_LONG).show() }
+                    try { FinanceBackup.import(context, uri, db)
+                        openingBalances = accounts.associateWith { balancePrefs.getLong(it, 0L) }
+                        chileClose = billingPrefs.getInt("chileClose", 28).toString()
+                        chileDue = billingPrefs.getInt("chileDue", 5).toString()
+                        cmrClose = billingPrefs.getInt("cmrClose", 12).toString()
+                        cmrDue = billingPrefs.getInt("cmrDue", 25).toString()
+                        Toast.makeText(context, "Respaldo restaurado", Toast.LENGTH_LONG).show() }
                     catch (e: Exception) { Toast.makeText(context, "No se restauró: ${e.message}", Toast.LENGTH_LONG).show() }
                 }
             }) { Text("Reemplazar datos") } },
@@ -191,6 +209,19 @@ fun FinanceApp(db: FinanceDatabase) {
                             Text("Si activas el bloqueo, se solicitará al iniciar de nuevo la app. La base de datos local todavía no tiene cifrado de archivo.", style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { unlocked = false; requestUnlock() }, enabled = lockEnabled) { Text("Bloquear ahora") }
                             Spacer(Modifier.height(20.dp))
+                            Text("Ciclos de tarjetas (días estimados)", style = MaterialTheme.typography.titleMedium)
+                            Text("Configura los días de corte y vencimiento según tus estados de cuenta. No se calculan automáticamente.", style = MaterialTheme.typography.bodySmall)
+                            OutlinedTextField(chileClose, { chileClose = it.filter(Char::isDigit) }, label = { Text("Banco de Chile: día de facturación") })
+                            OutlinedTextField(chileDue, { chileDue = it.filter(Char::isDigit) }, label = { Text("Banco de Chile: día de pago") })
+                            OutlinedTextField(cmrClose, { cmrClose = it.filter(Char::isDigit) }, label = { Text("CMR: día de facturación") })
+                            OutlinedTextField(cmrDue, { cmrDue = it.filter(Char::isDigit) }, label = { Text("CMR: día de pago") })
+                            val days = listOf(chileClose, chileDue, cmrClose, cmrDue).map { it.toIntOrNull() }
+                            Button(enabled = days.all { it != null && it in 1..28 }, onClick = {
+                                billingPrefs.edit().putInt("chileClose", days[0]!!).putInt("chileDue", days[1]!!)
+                                    .putInt("cmrClose", days[2]!!).putInt("cmrDue", days[3]!!).apply()
+                                Toast.makeText(context, "Ciclos guardados", Toast.LENGTH_SHORT).show()
+                            }) { Text("Guardar ciclos") }
+                            Spacer(Modifier.height(16.dp))
                             Text("Copias de seguridad", style = MaterialTheme.typography.titleMedium)
                             Text("El archivo JSON no está cifrado: guárdalo en un lugar privado.", style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { exportLauncher.launch("mis-finanzas-respaldo.json") }) { Text("Exportar respaldo") }
@@ -210,8 +241,15 @@ fun Dashboard(movements: List<Movement>, obligations: List<Obligation>, openingB
     val current = movements.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == month } == true }
     val income = current.filter { it.amountClp > 0 }.sumOf { it.amountClp }
     val expenses = -current.filter { it.amountClp < 0 }.sumOf { it.amountClp }
-    val pending = obligations.filter { it.kind == "Pago" && !it.paid }.sumOf { it.amountClp * it.installments }
+    val pending = obligations.filter { it.kind == "Pago" && !it.paid }.sumOf { it.amountClp * (it.installments - it.paidCount).coerceAtLeast(0) }
     val receivable = obligations.filter { it.kind == "Reembolso" && !it.paid }.sumOf { it.amountClp }
+    val upcoming = obligations.filter { it.kind == "Pago" && !it.paid }.sumOf { o ->
+        val start = parseDate(o.dueDate)
+        if (start == null) 0L else (o.paidCount until o.installments).sumOf { index ->
+            val due = start.plusMonths(index.toLong())
+            if (YearMonth.from(due) == month && !due.isBefore(today)) o.amountClp else 0L
+        }
+    }
     val balance = movements.filter { it.account != "CMR" && it.account != "Tarjeta Chile" }.sumOf { it.amountClp } + openingBalances.filterKeys { it != "CMR" && it != "Tarjeta Chile" }.values.sum()
     var editingAccount by remember { mutableStateOf<String?>(null) }
     var openingInput by remember { mutableStateOf("") }
@@ -240,9 +278,10 @@ fun Dashboard(movements: List<Movement>, obligations: List<Obligation>, openingB
             SummaryCard("Ingresos de este mes", money(income))
             SummaryCard("Gastos de este mes", money(expenses))
             SummaryCard("Cuotas y pagos pendientes", money(pending))
+            SummaryCard("Cuotas que vencen este mes", money(upcoming))
             SummaryCard("Reembolsos por cobrar", money(receivable))
-            SummaryCard("Proyección simple (sin futuros ingresos)", money(balance - pending + receivable))
-            Text("La proyección es orientativa: no incluye saldos reales ni pagos ya reflejados en movimientos. Evita registrar dos veces el mismo pago.", style = MaterialTheme.typography.bodySmall)
+            SummaryCard("Proyección hasta fin de mes (sin futuros ingresos)", money(balance - upcoming))
+            Text("Estimación orientativa: no incluye gastos variables futuros, pagos ya registrados ni ingresos por cobrar. No descuenta reembolsos hasta recibirlos.", style = MaterialTheme.typography.bodySmall)
         }
         item {
             Text("Tendencia de 6 meses", style = MaterialTheme.typography.titleMedium)
@@ -371,7 +410,7 @@ fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, sco
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
         item {
             Text(if (kind == "Pago") "Cuotas y pagos pendientes" else "Reembolsos por cobrar", style = MaterialTheme.typography.titleLarge)
-            Text(if (kind == "Pago") "Ingresa el valor de CADA cuota y la fecha del primer vencimiento. Las siguientes vencen mensualmente." else "Registra dinero que otra persona debe devolverte.", style = MaterialTheme.typography.bodySmall)
+            Text(if (kind == "Pago") "Ingresa el valor de CADA cuota y la fecha del primer vencimiento. Para gastos recurrentes, registra cada mes como un pago separado." else "Registra dinero que otra persona debe devolverte.", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(title, { title = it }, label = { Text(if (kind == "Pago") "Compra o cuenta" else "Persona y motivo") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text(if (kind == "Pago") "Valor de cada cuota CLP" else "Monto a cobrar CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             AccountPicker(account) { account = it }
@@ -391,19 +430,22 @@ fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, sco
                 Column(Modifier.padding(12.dp)) {
                     Text(o.title, style = MaterialTheme.typography.titleMedium)
                     Text("${o.account} · ${o.dueDate}")
-                    Text(if (o.kind == "Pago") "${o.installments} cuota(s) de ${money(o.amountClp)}" else money(o.amountClp))
+                    Text(if (o.kind == "Pago") "${(o.installments - o.paidCount).coerceAtLeast(0)} de ${o.installments} cuota(s) pendientes de ${money(o.amountClp)}" else money(o.amountClp))
                     Text(if (o.paid) "Finalizado" else "Pendiente")
                     if (o.kind == "Pago" && !o.paid) {
                         parseDate(o.dueDate)?.let { first ->
                             Text("Próximos vencimientos:", style = MaterialTheme.typography.labelMedium)
-                            repeat(minOf(o.installments, 6)) { index ->
-                                Text("${first.plusMonths(index.toLong())}: ${money(o.amountClp)}", style = MaterialTheme.typography.bodySmall)
+                            repeat(minOf((o.installments - o.paidCount).coerceAtLeast(0), 6)) { offset ->
+                                Text("${first.plusMonths((o.paidCount + offset).toLong())}: ${money(o.amountClp)}", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
                     Row {
-                        TextButton(onClick = { scope.launch { dao.updateObligation(o.copy(paid = !o.paid)) } }) {
-                            Text(if (o.paid) "Marcar pendiente" else if (o.kind == "Pago") "Marcar todo pagado" else "Marcar cobrado")
+                        TextButton(onClick = { scope.launch { dao.updateObligation(if (o.kind == "Pago") {
+                            if (o.paid) o.copy(paid = false, paidCount = (o.installments - 1).coerceAtLeast(0))
+                            else o.copy(paidCount = (o.paidCount + 1).coerceAtMost(o.installments), paid = o.paidCount + 1 >= o.installments)
+                        } else o.copy(paid = !o.paid)) } }) {
+                            Text(if (o.paid) "Reabrir" else if (o.kind == "Pago") "Pagar una cuota" else "Marcar cobrado")
                         }
                         TextButton(onClick = { scope.launch { dao.deleteObligation(o) } }) { Text("Eliminar") }
                     }
