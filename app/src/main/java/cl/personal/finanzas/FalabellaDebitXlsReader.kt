@@ -101,14 +101,15 @@ object FalabellaDebitXlsReader {
             when (record) {
                 0x00FC -> stringTable = readStringTable(book, start, end)
                 0x00FD -> {
-                    require(size >= 10 && stringTable != null) { "Celda XLS inválida" }
+                    require(size >= 10) { "Celda XLS inválida" }
+                    val table = stringTable ?: error("Tabla de textos XLS no encontrada")
                     val row = book.u16(start)
                     val column = book.u16(start + 2)
                     val index = book.i32(start + 6)
-                    require(row <= 5000 && column <= 10 && index in stringTable.indices) {
+                    require(row <= 5000 && column <= 10 && index in table.indices) {
                         "Índice de texto XLS inválido"
                     }
-                    rows.getOrPut(row) { mutableMapOf() }[column] = stringTable[index]
+                    rows.getOrPut(row) { mutableMapOf() }[column] = table[index]
                 }
             }
             pos = end
@@ -181,7 +182,7 @@ object FalabellaDebitXlsReader {
                 require(pos + 4 <= end) { "Texto XLS inválido" }
                 val n = book.i32(pos); pos += 4; n
             } else 0
-            val byteCount = characterCount * if (flags and 0x01 != 0) 2 else 1
+            val byteCount = characterCount * (if (flags and 0x01 != 0) 2 else 1)
             require(byteCount >= 0 && extBytes >= 0 && pos + byteCount.toLong() + richRuns.toLong() * 4 + extBytes <= end) {
                 "Tabla de textos XLS incompleta"
             }
