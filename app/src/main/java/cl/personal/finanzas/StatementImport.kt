@@ -17,6 +17,9 @@ object StatementImport {
         val lines = raw.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.toList()
         require(lines.size <= 5001) { "Máximo 5000 movimientos" }
         require(lines.isNotEmpty()) { "Archivo vacío" }
+        if (lines.first().contains("+000") && lines.first().length >= 110) {
+            return@withContext readBancoChileFixed(lines, account)
+        }
         val separator = if (lines.first().count { it == ';' } > lines.first().count { it == ',' }) ';' else ','
         val result = mutableListOf<Movement>()
         lines.forEachIndexed { index, line ->
@@ -35,6 +38,35 @@ object StatementImport {
         }
         require(result.isNotEmpty()) { "No se encontraron movimientos" }
         result
+    }
+
+    private fun readBancoChileFixed(lines: List<String>, account: String): List<Movement> {
+        require(account == "Banco de Chile") { "Este formato corresponde a Banco de Chile. Selecciona esa cuenta." }
+        val result = mutableListOf<Movement>()
+        lines.forEachIndexed { index, line ->
+            require(line.length >= 75 && line.substring(58, 62) == "+000") {
+                "Fila ${index + 1}: estructura bancaria desconocida"
+            }
+            // Banco de Chile TXT: monto CLP en posiciones 44..57; signo +000;
+            // descripción variable y tipo C (cargo), A (abono), S (saldo informativo).
+            val typeAndDate = Regex("([CAS])(\\\\d{8})00000$").find(line)
+                ?: error("Fila ${index + 1}: tipo o fecha inválida")
+            val kind = typeAndDate.groupValues[1]
+            if (kind == "S") return@forEachIndexed // saldo y retenciones no son transacciones
+            val date = try {
+                LocalDate.parse(typeAndDate.groupValues[2], DateTimeFormatter.BASIC_ISO_DATE)
+            } catch (_: Exception) { error("Fila ${index + 1}: fecha inválida") }
+            val amount = line.substring(44, 58).trim().toLongOrNull()
+                ?: error("Fila ${index + 1}: monto inválido")
+            require(amount > 0) { "Fila ${index + 1}: monto inválido" }
+            val description = line.substring(62, typeAndDate.range.first).trim()
+            require(description.isNotBlank()) { "Fila ${index + 1}: descripción vacía" }
+            result.add(Movement(account = account, description = description.take(300),
+                amountClp = if (kind == "C") -amount else amount, date = date.toString(),
+                category = "Importado"))
+        }
+        require(result.isNotEmpty()) { "No hay cargos ni abonos en el archivo" }
+        return result
     }
 
     private fun parseDate(input: String): LocalDate? {
