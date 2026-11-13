@@ -835,7 +835,7 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
                 Row(Modifier.padding(12.dp)) {
                     Column(Modifier.weight(1f)) {
                         Text(m.description.ifBlank { "(Sin descripción)" }, style = MaterialTheme.typography.titleMedium)
-                        Text("${m.account} · ${m.category} · ${m.date}", style = MaterialTheme.typography.bodySmall)
+                        Text("${AccountCatalog.displayName(m.account)} · ${m.category} · ${m.date}", style = MaterialTheme.typography.bodySmall)
                         Text(money(m.amountClp))
                     }
                     TextButton(onClick = { scope.launch { dao.deleteMovement(m) } }) { Text("Eliminar") }
