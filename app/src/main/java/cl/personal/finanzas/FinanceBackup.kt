@@ -14,7 +14,7 @@ object FinanceBackup {
         val movements = db.financeDao().allMovements()
         val obligations = db.financeDao().allObligations()
         val mail = db.financeDao().allMailCandidates()
-        val root = JSONObject().put("format", "mis-finanzas").put("version", 4)
+        val root = JSONObject().put("format", "mis-finanzas").put("version", 5)
         val ms = JSONArray()
         movements.forEach { m ->
             ms.put(JSONObject().put("account",m.account).put("description",m.description)
@@ -35,6 +35,7 @@ object FinanceBackup {
                 .put("status", m.status).put("note", m.note))
         }
         root.put("mailCandidates", emails)
+        root.put("creditLimits", CreditLimitStore.export(context))
         val balances = context.getSharedPreferences("opening_balances", 0)
         val opening = JSONObject()
         AccountCatalog.names.forEach {
@@ -59,7 +60,7 @@ object FinanceBackup {
         val raw = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         require(raw.length < 10_000_000) { "Respaldo demasiado grande" }
         val root = JSONObject(raw)
-        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..4) { "Formato de respaldo no reconocido" }
+        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..5) { "Formato de respaldo no reconocido" }
         val ms = root.getJSONArray("movements")
         val os = root.getJSONArray("obligations")
         require(ms.length() <= 10000 && os.length() <= 10000) { "Demasiados registros" }
@@ -101,6 +102,7 @@ object FinanceBackup {
                 )
             }
         } else emptyList()
+        val creditLimits = root.optJSONObject("creditLimits")
         val balances = AccountCatalog.names.associateWith {
             opening?.optLong(it, 0L) ?: 0L
         }
@@ -128,6 +130,7 @@ object FinanceBackup {
             cycleValues.forEach { (key, value) -> cyclesEditor.putInt(key, value) }
             cyclesEditor.commit()
         }
+        if (creditLimits != null) CreditLimitStore.restore(context, creditLimits)
         if (savedVisibility != null) {
             require(AccountCatalog.save(context, savedVisibility)) {
                 "No se pudo recuperar la selección de cuentas"
