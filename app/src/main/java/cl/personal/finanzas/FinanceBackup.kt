@@ -14,7 +14,7 @@ object FinanceBackup {
         val movements = db.financeDao().allMovements()
         val obligations = db.financeDao().allObligations()
         val mail = db.financeDao().allMailCandidates()
-        val root = JSONObject().put("format", "mis-finanzas").put("version", 7)
+        val root = JSONObject().put("format", "mis-finanzas").put("version", 8)
         val ms = JSONArray()
         movements.forEach { m ->
             ms.put(JSONObject().put("id",m.id).put("account",m.account).put("description",m.description)
@@ -27,6 +27,19 @@ object FinanceBackup {
                 .put("kind",o.kind).put("installments",o.installments).put("paid",o.paid).put("paidCount",o.paidCount))
         }
         root.put("movements",ms).put("obligations",os)
+        val plans = JSONArray()
+        db.financeDao().allPlannedExpenses().forEach { plan ->
+            plans.put(JSONObject()
+                .put("id", plan.id).put("title", plan.title).put("icon", plan.icon)
+                .put("estimatedAmountClp", plan.estimatedAmountClp).put("isVariable", plan.isVariable)
+                .put("frequency", plan.frequency).put("nextDueDate", plan.nextDueDate)
+                .put("anchorDay", plan.anchorDay).put("defaultAccount", plan.defaultAccount)
+                .put("active", plan.active).put("lastPaidDate", plan.lastPaidDate)
+                .put("lastPaidAmountClp", plan.lastPaidAmountClp)
+                .put("lastPaidWithoutMovement", plan.lastPaidWithoutMovement)
+                .put("lastPaymentMovementId", plan.lastPaymentMovementId))
+        }
+        root.put("plannedExpenses", plans)
         val emails = JSONArray()
         mail.forEach { m ->
             emails.put(JSONObject().put("sourceId", m.sourceId).put("operationDate", m.operationDate)
@@ -68,7 +81,7 @@ object FinanceBackup {
         val raw = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         require(raw.length < 10_000_000) { "Respaldo demasiado grande" }
         val root = JSONObject(raw)
-        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..7) { "Formato de respaldo no reconocido" }
+        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..8) { "Formato de respaldo no reconocido" }
         val ms = root.getJSONArray("movements")
         val os = root.getJSONArray("obligations")
         require(ms.length() <= 10000 && os.length() <= 10000) { "Demasiados registros" }
@@ -89,6 +102,35 @@ object FinanceBackup {
             Obligation(title=o.getString("title"),account=o.getString("account"),
                 amountClp=o.getLong("amountClp"),dueDate=o.getString("dueDate"),kind=o.getString("kind"),
                 installments=o.getInt("installments"),paid=o.getBoolean("paid"),paidCount=o.optInt("paidCount", if (o.getBoolean("paid")) o.getInt("installments") else 0))
+        }
+        val plannedArray = root.optJSONArray("plannedExpenses")
+        if (root.optInt("version") >= 8) require(plannedArray != null) { "Faltan gastos previstos en el respaldo" }
+        require(plannedArray == null || plannedArray.length() <= 1000) { "Demasiados gastos previstos" }
+        val planned = plannedArray?.let { array ->
+            (0 until array.length()).map { index ->
+                val p = array.getJSONObject(index)
+                PlannedExpense(
+                    id = p.getLong("id"), title = p.getString("title"),
+                    icon = p.getString("icon"), estimatedAmountClp = p.getLong("estimatedAmountClp"),
+                    isVariable = p.getBoolean("isVariable"), frequency = p.getString("frequency"),
+                    nextDueDate = p.getString("nextDueDate"), anchorDay = p.getInt("anchorDay"),
+                    defaultAccount = p.getString("defaultAccount"), active = p.getBoolean("active"),
+                    lastPaidDate = p.optString("lastPaidDate"),
+                    lastPaidAmountClp = p.optLong("lastPaidAmountClp", 0L),
+                    lastPaidWithoutMovement = p.optBoolean("lastPaidWithoutMovement", false),
+                    lastPaymentMovementId = p.optLong("lastPaymentMovementId", 0L)
+                ).also { require(it.id > 0L && PlannedExpenseRules.valid(it)) {
+                    "Gasto previsto inválido en el respaldo"
+                } }
+            }.also { list ->
+                require(list.map { it.id }.distinct().size == list.size) {
+                    "Hay gastos previstos duplicados en el respaldo"
+                }
+                require(list.all { it.lastPaidDate.isBlank() ||
+                    runCatching { java.time.LocalDate.parse(it.lastPaidDate) }.isSuccess }) {
+                    "Fecha de pago inválida en el respaldo"
+                }
+            }
         }
         val opening = root.optJSONObject("openingBalances")
         val billing = root.optJSONObject("billingCycles")
@@ -157,9 +199,12 @@ object FinanceBackup {
             db.financeDao().clearMovements()
             db.financeDao().clearObligations()
             db.financeDao().clearMailCandidates()
+            // Respaldos antiguos no contenían esta sección: conservar planes existentes.
+            if (planned != null) db.financeDao().clearPlannedExpenses()
             candidates.forEach { db.financeDao().insertMailCandidate(it) }
             movements.forEach { db.financeDao().insertMovement(it) }
             obligations.forEach { db.financeDao().insertObligation(it) }
+            planned?.forEach { db.financeDao().insertPlannedExpense(it) }
         }
         if (root.optInt("version") >= 2) {
             val editor = context.getSharedPreferences("opening_balances", 0).edit()
