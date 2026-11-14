@@ -43,7 +43,8 @@ data class PlannedExpense(
     val lastPaidDate: String = "",
     val lastPaidAmountClp: Long = 0L,
     val lastPaidWithoutMovement: Boolean = false,
-    val lastPaymentMovementId: Long = 0L
+    val lastPaymentMovementId: Long = 0L,
+    val category: String = "General"
 )
 
 object PlannedExpenseRules {
@@ -57,7 +58,8 @@ object PlannedExpenseRules {
             plan.frequency in setOf("SEMANAL", "MENSUAL") &&
             date != null && plan.anchorDay in 1..31 &&
             plan.defaultAccount in AccountCatalog.names &&
-            plan.lastPaidAmountClp >= 0 && plan.lastPaymentMovementId >= 0
+            plan.lastPaidAmountClp >= 0 && plan.lastPaymentMovementId >= 0 &&
+            plan.category.isNotBlank() && plan.category.length <= 100
     }
 
     fun nextDueAfterPayment(plan: PlannedExpense, today: LocalDate): LocalDate {
@@ -98,6 +100,7 @@ fun PlannedExpensesScreen(
     var title by remember { mutableStateOf("") }
     var amountInput by remember { mutableStateOf("") }
     var icon by remember { mutableStateOf("💡") }
+    var category by remember { mutableStateOf("General") }
     var frequency by remember { mutableStateOf("MENSUAL") }
     var variable by remember { mutableStateOf(true) }
     var nextDue by remember { mutableStateOf(today.toString()) }
@@ -117,6 +120,7 @@ fun PlannedExpensesScreen(
         title = plan?.title.orEmpty()
         amountInput = plan?.estimatedAmountClp?.toString().orEmpty()
         icon = plan?.icon ?: "💡"
+        category = plan?.category ?: "General"
         frequency = plan?.frequency ?: "MENSUAL"
         variable = plan?.isVariable ?: true
         nextDue = plan?.nextDueDate ?: today.toString()
@@ -191,6 +195,7 @@ fun PlannedExpensesScreen(
                                 Text(plan.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 Text("${if (plan.frequency == "SEMANAL") "Cada semana" else "Cada mes"} · ${if (plan.isVariable) "Variable" else "Fijo"}",
                                     style = MaterialTheme.typography.bodySmall)
+                                Text(plan.category, style = MaterialTheme.typography.labelSmall)
                             }
                             Text(clp.format(plan.estimatedAmountClp), fontWeight = FontWeight.Bold)
                         }
@@ -260,6 +265,7 @@ fun PlannedExpensesScreen(
                     OutlinedTextField(amountInput, { amountInput = it.filter(Char::isDigit).take(12) },
                         label = { Text("Monto previsto en CLP") }, modifier = Modifier.fillMaxWidth(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
+                    ExpenseCategoryPicker(category, { category = it })
                     Text("Tipo de monto", style = MaterialTheme.typography.labelLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected = !variable, onClick = { variable = false }, label = { Text("Fijo") })
@@ -304,7 +310,7 @@ fun PlannedExpensesScreen(
                     onClick = {
                         val old = editing
                         val plan = PlannedExpense(
-                            id = old?.id ?: 0L, title = title.trim(), icon = icon,
+                            id = old?.id ?: 0L, title = title.trim(), icon = icon, category = category,
                             estimatedAmountClp = amount!!, isVariable = variable, frequency = frequency,
                             nextDueDate = nextDue,
                             anchorDay = if (old != null && old.nextDueDate == nextDue && old.frequency == frequency)
@@ -423,7 +429,7 @@ fun PlannedExpensesScreen(
                                     dao.insertMovement(Movement(
                                         account = accountToPay, description = "${fresh.icon} ${fresh.title}",
                                         amountClp = -amountToPay, date = paidOn,
-                                        category = "Gasto previsto"
+                                        category = fresh.category
                                     ))
                                 } else 0L
                                 dao.updatePlannedExpense(fresh.copy(
