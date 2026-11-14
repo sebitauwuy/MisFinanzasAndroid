@@ -1287,7 +1287,7 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
     val groupedMovements = filteredMovements.groupBy { movement ->
         parseDate(movement.date)?.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))?.toString()
             ?: "sin-fecha"
-    }.toSortedMap(compareByDescending { it })
+    }.toSortedMap(compareByDescending<String> { parseDate(it) ?: LocalDate.MIN })
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
         item {
             Text("Registrar movimiento", style = MaterialTheme.typography.titleLarge)
@@ -1330,10 +1330,10 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
                 null -> "Sin fecha"
                 else -> "Semana del ${monday.dayOfMonth}/${monday.monthValue} al ${monday.plusDays(6).dayOfMonth}/${monday.plusDays(6).monthValue}"
             }
-            val isExpanded = weekExpanded[weekKey] ?: (search.isNotBlank() || monday == thisMonday)
+            val isExpanded = if (search.isNotBlank()) true else weekExpanded[weekKey] ?: (monday == thisMonday)
             item(key = "week_$weekKey") {
                 Card(
-                    onClick = { weekExpanded[weekKey] = !isExpanded },
+                    onClick = { if (search.isBlank()) weekExpanded[weekKey] = !isExpanded },
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFE8EEF8)),
                     shape = RoundedCornerShape(14.dp)
