@@ -1376,7 +1376,9 @@ fun Dashboard(
                 DashboardUpcoming(first.plusMonths(i.toLong()), "💳 " + o.title, o.amountClp, 2)
             }
         }
-        (planned + installments).filter { !it.date.isAfter(today.plusDays(35)) }
+        (planned + installments).filter {
+            !it.date.isAfter(today.plusDays(35)) && !it.date.isBefore(today.minusDays(14))
+        }
             .sortedWith(compareBy<DashboardUpcoming> { it.date }.thenBy { it.title })
             .take(3)
     }
@@ -1443,8 +1445,11 @@ fun Dashboard(
                                     tint = foreground, modifier = Modifier.size(19.dp))
                             }
                         }
-                        val displayed = if (abs(balanceAnim.value.toDouble() - balance.toDouble()) < 1.0)
-                            balance else balanceAnim.value.toLong()
+                        // Float anima suavemente; el Long original evita redondeos
+                        // en saldos grandes una vez terminada la animación.
+                        val displayed = if (!balanceAnim.isRunning &&
+                            balanceAnim.value == balance.toFloat()) balance
+                            else balanceAnim.value.toLong()
                         Text(money(displayed), color = foreground,
                             style = MaterialTheme.typography.headlineLarge,
                             fontWeight = FontWeight.Bold)
