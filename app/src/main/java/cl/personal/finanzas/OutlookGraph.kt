@@ -66,6 +66,8 @@ object OutlookGraph {
     }
 
     fun lastSuccessfulSyncMs(context: Context): Long = prefs(context).getLong("last_sync", 0L)
+    fun bancoEstadoReceiptsSeen(context: Context): Boolean =
+        prefs(context).getLong("bancoestado_receipt_detected", 0L) > 0L
 
     fun enabled(context: Context): Boolean = prefs(context).getBoolean("auto_on_open", true)
     fun setEnabled(context: Context, enabled: Boolean) { prefs(context).edit().putBoolean("auto_on_open", enabled).apply() }
@@ -287,7 +289,8 @@ object OutlookGraph {
                 scanned++
                 val sender = email.optJSONObject("sender")?.optJSONObject("emailAddress")?.optString("address").orEmpty()
                 val knownBankSender = sender.equals("enviodigital@bancochile.cl", true) ||
-                    sender.equals("serviciodetransferencias@bancochile.cl", true)
+                    sender.equals("serviciodetransferencias@bancochile.cl", true) ||
+                    BancoEstadoEmailParser.isSupportedSender(sender)
                 if (knownBankSender) bankSender++
                 val parsed = ChileBankEmailParser.parse(email, suffix)
                 if (parsed == null) {
@@ -295,6 +298,12 @@ object OutlookGraph {
                     continue
                 }
                 parsedCount++
+                if (parsed.account == "BancoEstado") {
+                    // Solo se muestra como reconocido si un correo pasó el parser;
+                    // no implica conexión directa ni autorización con BancoEstado.
+                    prefs(context).edit()
+                        .putLong("bancoestado_receipt_detected", System.currentTimeMillis()).apply()
+                }
                 if (!isAfterCutoff(context, parsed)) {
                     excludedByDate++
                     continue
