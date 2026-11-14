@@ -54,7 +54,7 @@ private data class MonthlyCashflow(
     val net: Long get() = income - spending
     val label: String get() = month.atDay(1)
         .format(DateTimeFormatter.ofPattern("MMM", MONTH_LOCALE))
-        .removeSuffix(".").replaceFirstChar { it.uppercase(MONTH_LOCALE) }.take(3)
+        .removeSuffix(".").replaceFirstChar { it.toString().uppercase(MONTH_LOCALE) }.take(3)
 }
 
 private fun netLabel(amount: Long): String {
@@ -299,7 +299,7 @@ fun SixMonthCashflowChart(
                                 Text(
                                     month.month.atDay(1).format(
                                         DateTimeFormatter.ofPattern("MMMM yyyy", MONTH_LOCALE)
-                                    ).replaceFirstChar { it.uppercase(MONTH_LOCALE) },
+                                    ).replaceFirstChar { it.toString().uppercase(MONTH_LOCALE) },
                                     fontWeight = FontWeight.SemiBold,
                                     style = MaterialTheme.typography.labelLarge
                                 )
