@@ -1444,6 +1444,52 @@ fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, sco
     var account by remember(kind, availableAccounts) { mutableStateOf(listOf(if (kind == "Pago") "CMR" else "Banco de Chile").firstOrNull { it in availableAccounts } ?: availableAccounts.firstOrNull() ?: "Banco de Chile") }
     var date by remember(kind) { mutableStateOf(LocalDate.now().toString()) }
     var installments by remember(kind) { mutableStateOf("1") }
+    val context = LocalContext.current
+    var editingObligation by remember { mutableStateOf<Obligation?>(null) }
+    var editingBusy by remember { mutableStateOf(false) }
+    if (editingObligation != null) {
+        val original = editingObligation!!
+        EditObligationDialog(
+            original = original,
+            availableAccounts = availableAccounts,
+            saving = editingBusy,
+            onDismiss = { if (!editingBusy) editingObligation = null },
+            onSave = { updated ->
+                if (!editingBusy) {
+                    editingBusy = true
+                    scope.launch {
+                        try {
+                            val fresh = dao.getObligationById(original.id)
+                                ?: error("Este registro ya fue eliminado.")
+                            require(fresh.kind == original.kind &&
+                                fresh.paidCount == original.paidCount &&
+                                fresh.paid == original.paid) {
+                                "El estado de pago cambió. Abre nuevamente la edición."
+                            }
+                            require(updated.installments >= fresh.paidCount) {
+                                "El total no puede ser menor que las cuotas pagadas."
+                            }
+                            dao.updateObligation(fresh.copy(
+                                title = updated.title,
+                                account = updated.account,
+                                amountClp = updated.amountClp,
+                                dueDate = updated.dueDate,
+                                installments = updated.installments,
+                                paid = if (fresh.kind == "Pago")
+                                    fresh.paidCount >= updated.installments else fresh.paid
+                            ))
+                            editingObligation = null
+                            Toast.makeText(context, "Cuota o cobro actualizado", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            editingObligation = null
+                            Toast.makeText(context, "No se pudo editar: ${e.message}",
+                                Toast.LENGTH_LONG).show()
+                        } finally { editingBusy = false }
+                    }
+                }
+            }
+        )
+    }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
         if (kind == "Pago") {
             item {
@@ -1473,14 +1519,14 @@ fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, sco
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
                     Text(o.title, style = MaterialTheme.typography.titleMedium)
-                    Text("${AccountCatalog.displayName(o.account)} · ${o.dueDate}")
+                    Text("${AccountCatalog.displayName(o.account)} · ${dateForDisplay(o.dueDate)}")
                     Text(if (o.kind == "Pago") "${(o.installments - o.paidCount).coerceAtLeast(0)} de ${o.installments} cuota(s) pendientes de ${money(o.amountClp)}" else money(o.amountClp))
                     Text(if (o.paid) "Finalizado" else "Pendiente")
                     if (o.kind == "Pago" && !o.paid) {
                         parseDate(o.dueDate)?.let { first ->
                             Text("Próximos vencimientos:", style = MaterialTheme.typography.labelMedium)
                             repeat(minOf((o.installments - o.paidCount).coerceAtLeast(0), 6)) { offset ->
-                                Text("${first.plusMonths((o.paidCount + offset).toLong())}: ${money(o.amountClp)}", style = MaterialTheme.typography.bodySmall)
+                                Text("${dateForDisplay(first.plusMonths((o.paidCount + offset).toLong()).toString())}: ${money(o.amountClp)}", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -1491,6 +1537,7 @@ fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, sco
                         } else o.copy(paid = !o.paid)) } }) {
                             Text(if (o.paid) "Reabrir" else if (o.kind == "Pago") "Pagar una cuota" else "Marcar cobrado")
                         }
+                        TextButton(onClick = { editingObligation = o }) { Text("Editar") }
                         TextButton(onClick = { scope.launch { dao.deleteObligation(o) } }) { Text("Eliminar") }
                     }
                 }
