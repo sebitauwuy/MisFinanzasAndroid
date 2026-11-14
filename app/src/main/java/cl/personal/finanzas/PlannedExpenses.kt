@@ -271,6 +271,10 @@ fun PlannedExpensesScreen(
                     }, modifier = Modifier.fillMaxWidth()) {
                         Text("Próximo vencimiento: $nextDue")
                     }
+                    if (cashAccounts.isEmpty()) {
+                        Text("Activa una cuenta con saldo disponible desde Ajustes para poder guardar este gasto.",
+                            color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
                     if (cashAccounts.isNotEmpty()) {
                         Text("Cuenta habitual de pago", style = MaterialTheme.typography.labelLarge)
                         AccountPicker(defaultAccount, { defaultAccount = it }, cashAccounts)
@@ -352,6 +356,9 @@ fun PlannedExpensesScreen(
                             paymentConfirmDuplicate = false
                         }, date.year, date.monthValue - 1, date.dayOfMonth).show()
                     }) { Text("Fecha del pago: $paymentDate") }
+                    if (paidDate?.isAfter(today) == true) Text(
+                        "No se puede marcar como realizado un pago de una fecha futura.",
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     if (plan.isVariable && actual != null) Text("Diferencia frente al previsto: ${clp.format(actual - plan.estimatedAmountClp)}",
                         style = MaterialTheme.typography.bodySmall)
                     if (possibleDuplicates && !paymentExisting) {
@@ -360,13 +367,13 @@ fun PlannedExpensesScreen(
                     }
                     if (paymentConfirmDuplicate) Text("Confirma que se trata de otro pago distinto antes de registrarlo.",
                         color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    Text("«Registrar gasto» descuenta dinero una vez. «Ya está registrado» solo avanza el próximo vencimiento, sin modificar saldos.",
+                    Text("«Registrar gasto» descuenta dinero. «Ya registrado» avanza el vencimiento sin modificar saldos. Si había períodos antiguos sin pagar, no se generan cargos retroactivos.",
                         style = MaterialTheme.typography.bodySmall)
                 }
             },
             confirmButton = {
                 TextButton(enabled = !working && actual != null && actual in 1L..999_999_999_999L &&
-                    paidDate != null && paymentAccount in cashAccounts, onClick = {
+                    paidDate != null && !paidDate.isAfter(today) && paymentAccount in cashAccounts, onClick = {
                     if (possibleDuplicates && !paymentConfirmDuplicate && !paymentExisting) {
                         paymentConfirmDuplicate = true
                         return@TextButton
@@ -378,6 +385,20 @@ fun PlannedExpensesScreen(
                                 val fresh = dao.getPlannedExpense(plan.id) ?: error("Este gasto ya no existe.")
                                 require(fresh.active && fresh.nextDueDate == plan.nextDueDate) {
                                     "Este vencimiento ya fue procesado o modificado."
+                                }
+                                if (!paymentExisting && !paymentConfirmDuplicate) {
+                                    val duplicateNow = dao.allMovements().any { movement ->
+                                        movement.account == paymentAccount &&
+                                            movement.amountClp == -(actual!!) &&
+                                            runCatching {
+                                                kotlin.math.abs(ChronoUnit.DAYS.between(
+                                                    LocalDate.parse(movement.date), LocalDate.parse(paymentDate)
+                                                )) <= 1L
+                                            }.getOrDefault(false)
+                                    }
+                                    require(!duplicateNow) {
+                                        "Se encontró un posible duplicado al guardar. Vuelve a abrir el pago y confirma si corresponde."
+                                    }
                                 }
                                 val movementId = if (!paymentExisting) {
                                     dao.insertMovement(Movement(
@@ -404,10 +425,13 @@ fun PlannedExpensesScreen(
                     if (paymentExisting) "Confirmar registrado" else "Registrar gasto") }
             },
             dismissButton = {
-                TextButton(enabled = !working, onClick = {
-                    paymentExisting = !paymentExisting
-                    paymentConfirmDuplicate = false
-                }) { Text(if (paymentExisting) "Registrar un gasto nuevo" else "Ya está registrado") }
+                Row {
+                    TextButton(enabled = !working, onClick = { paymentPlan = null }) { Text("Cancelar") }
+                    TextButton(enabled = !working, onClick = {
+                        paymentExisting = !paymentExisting
+                        paymentConfirmDuplicate = false
+                    }) { Text(if (paymentExisting) "Registrar nuevo" else "Ya registrado") }
+                }
             }
         )
     }
