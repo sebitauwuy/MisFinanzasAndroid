@@ -168,8 +168,12 @@ object OutlookGraph {
     suspend fun beginLogin(context: Context): OutlookDeviceCode = withContext(Dispatchers.IO) {
         val appId = clientId(context)
         require(appId.isNotBlank()) { "Configura primero el ID público de la aplicación" }
-        val (http, data) = request("$BASE_AUTH/devicecode",
-            encodeForm("client_id" to appId, "scope" to SCOPES))
+        val (http, data) = try {
+            request("$BASE_AUTH/devicecode",
+                encodeForm("client_id" to appId, "scope" to SCOPES))
+        } catch (e: java.net.UnknownHostException) {
+            error("Android no pudo resolver login.microsoftonline.com. Comprueba DNS privado, VPN o filtros de red; el navegador puede usar un DNS distinto.")
+        }
         require(http in 200..299) { remoteError(data) }
         OutlookDeviceCode(
             code = data.getString("user_code"),
@@ -185,13 +189,19 @@ object OutlookGraph {
         var seconds = prompt.intervalSeconds
         while (System.currentTimeMillis() < prompt.expiresAtMs) {
             delay(seconds * 1000L)
-            val (http, data) = withContext(Dispatchers.IO) {
-                request("$BASE_AUTH/token", encodeForm(
-                    "grant_type" to "urn:ietf:params:oauth:grant-type:device_code",
-                    "client_id" to prompt.clientId,
-                    "device_code" to prompt.privateCode
-                ))
+            val response = try {
+                withContext(Dispatchers.IO) {
+                    request("$BASE_AUTH/token", encodeForm(
+                        "grant_type" to "urn:ietf:params:oauth:grant-type:device_code",
+                        "client_id" to prompt.clientId,
+                        "device_code" to prompt.privateCode
+                    ))
+                }
+            } catch (e: java.io.IOException) {
+                // No descartar un código autorizado por una falla transitoria de DNS/red.
+                continue
             }
+            val (http, data) = response
             if (http in 200..299) {
                 withContext(Dispatchers.IO) { saveTokens(context, data) }
                 return
