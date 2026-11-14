@@ -665,21 +665,37 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                             }
                             Spacer(Modifier.height(12.dp))
                             FinanceSettingsGroup("Conexiones bancarias", "Estado de conexiones autorizadas") {
-                            Text("Preparación para acceso autorizado · No hay bancos conectados", style = MaterialTheme.typography.bodySmall)
+                            val outlookLinked = OutlookGraph.isConnected(context)
+                            val outlookSynced = OutlookGraph.lastSuccessfulSyncMs(context) > 0L
+                            Text(if (outlookLinked)
+                                "Banco de Chile: conexión mediante Outlook / Microsoft Graph. No es una API bancaria."
+                            else "Sin conexiones bancarias autorizadas actualmente.",
+                                style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.height(8.dp))
                             visibleAccounts.filter { it != "Efectivo" }.forEach { bank ->
                                 Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                     Column(Modifier.padding(14.dp)) {
                                         Text(AccountCatalog.displayName(bank), style = MaterialTheme.typography.titleMedium)
-                                        Text("Sin conexión · Los movimientos siguen siendo manuales", style = MaterialTheme.typography.bodySmall)
-                                        Text("La conexión automática requiere un servicio autorizado. La lectura de cartolas depende del formato de cada institución.", style = MaterialTheme.typography.labelSmall)
+                                        if (bank == "Banco de Chile" && outlookLinked) {
+                                            Text(if (outlookSynced) "Conectado mediante correo · Avisos detectados con Microsoft Graph"
+                                                else "Outlook autorizado · Aún no hay una lectura completada",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.tertiary)
+                                            Text("Lee avisos de compras y transferencias. No consulta el saldo bancario ni importa automáticamente movimientos sin revisión.",
+                                                style = MaterialTheme.typography.labelSmall)
+                                        } else {
+                                            Text("Sin conexión directa · Los movimientos siguen siendo manuales",
+                                                style = MaterialTheme.typography.bodySmall)
+                                            Text("Puedes registrar movimientos o importar cartolas cuando el formato esté disponible.",
+                                                style = MaterialTheme.typography.labelSmall)
+                                        }
                                     }
                                 }
                             }
-                            Text("Seguridad de la futura integración", style = MaterialTheme.typography.titleMedium)
-                            Text("Nunca ingreses tu clave bancaria, PIN, coordenadas ni códigos SMS en Mis Finanzas. Una futura autorización deberá realizarse mediante el canal seguro del proveedor y permitir revocación.", style = MaterialTheme.typography.bodySmall)
-                            Spacer(Modifier.height(18.dp))
-                            Spacer(Modifier.height(18.dp))
+                            Text("Seguridad de las conexiones", style = MaterialTheme.typography.titleMedium)
+                            Text("Nunca ingreses tu clave bancaria, PIN, coordenadas ni códigos SMS en Mis Finanzas. La autorización de correo se gestiona por Microsoft y puede desconectarse desde Outlook / Hotmail.",
+                                style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.height(12.dp))
                             }
                             Spacer(Modifier.height(12.dp))
                             FinanceSettingsGroup("Importar documentos", "Cartolas y resúmenes PDF", expandedAtStart = true) {
