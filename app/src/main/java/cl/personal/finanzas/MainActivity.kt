@@ -86,9 +86,17 @@ interface FinanceDao {
     @Delete suspend fun deleteObligation(value: Obligation)
     @Query("SELECT * FROM obligations ORDER BY id") suspend fun allObligations(): List<Obligation>
     @Query("DELETE FROM obligations") suspend fun clearObligations()
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertMailCandidate(candidate: MailCandidate): Long
+    @Query("SELECT * FROM mail_candidates ORDER BY operationDate DESC, sourceId DESC")
+    fun mailCandidates(): Flow<List<MailCandidate>>
+    @Query("SELECT * FROM mail_candidates WHERE sourceId = :id LIMIT 1")
+    suspend fun getMailCandidate(id: String): MailCandidate?
+    @Query("UPDATE mail_candidates SET status = :status WHERE sourceId = :id")
+    suspend fun markMailCandidate(id: String, status: String)
 }
 
-@Database(entities = [Movement::class, Obligation::class], version = 3, exportSchema = false)
+@Database(entities = [Movement::class, Obligation::class, MailCandidate::class], version = 4, exportSchema = false)
 abstract class FinanceDatabase : RoomDatabase() {
     abstract fun financeDao(): FinanceDao
 }
@@ -105,6 +113,12 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS mail_candidates (sourceId TEXT NOT NULL PRIMARY KEY, operationDate TEXT NOT NULL, description TEXT NOT NULL, amountClp INTEGER NOT NULL, account TEXT NOT NULL, category TEXT NOT NULL, status TEXT NOT NULL, note TEXT NOT NULL)")
+    }
+}
+
 private val accounts = AccountCatalog.names
 private val clp = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CL"))
 private fun money(value: Long) = clp.format(value)
@@ -116,7 +130,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         val db = Room.databaseBuilder(applicationContext, FinanceDatabase::class.java, "finanzas.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
         setContent { FinanceApp(db) }
     }
 }
