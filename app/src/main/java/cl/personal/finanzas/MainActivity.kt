@@ -1926,24 +1926,13 @@ fun Dashboard(
                 }
             }
         }
-        item {
-            Text("Ingresos y gastos · últimos 6 meses", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            (5 downTo 0).forEach { offset ->
-                val ym = month.minusMonths(offset.toLong())
-                val data = movementsToDate.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == ym } == true && it.account in cashAccounts }
-                val earned = data.filter { it.amountClp > 0 }.sumOf { it.amountClp }
-                val spent = -data.filter { it.amountClp < 0 }.sumOf { it.amountClp }
-                Text("${ym.monthValue}/${ym.year} · +${money(earned)} / -${money(spent)}", style = MaterialTheme.typography.bodySmall)
-                val maximum = maxOf(earned, spent, 1L).toFloat()
-                Box(Modifier.fillMaxWidth().height(7.dp).background(Color(0xFFE4E1E9))) {
-                    Box(Modifier.fillMaxWidth((earned.toFloat() / maximum).coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFF388E3C)))
-                }
-                Spacer(Modifier.height(3.dp))
-                Box(Modifier.fillMaxWidth().height(7.dp).background(Color(0xFFE4E1E9))) {
-                    Box(Modifier.fillMaxWidth((spent.toFloat() / maximum).coerceIn(0f, 1f)).fillMaxHeight().background(Color(0xFFB54747)))
-                }
-                Spacer(Modifier.height(9.dp))
-            }
+        item(key = "six_month_cashflow") {
+            SixMonthCashflowChart(
+                movements = movementsToDate,
+                cashAccounts = cashAccounts,
+                endMonth = month,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
