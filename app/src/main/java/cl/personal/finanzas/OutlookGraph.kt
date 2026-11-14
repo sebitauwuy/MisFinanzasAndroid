@@ -29,7 +29,7 @@ data class OutlookDeviceCode(
     val expiresAtMs: Long,
     val clientId: String
 )
-data class OutlookSyncResult(val scanned: Int, val queued: Int, val possibleDuplicates: Int)
+data class OutlookSyncResult(val scanned: Int, val queued: Int, val possibleDuplicates: Int, val bankSender: Int, val parsed: Int, val excludedByDate: Int, val unrecognized: Int)
 
 /**
  * Prototipo de cliente público OAuth con código de dispositivo.
@@ -251,6 +251,10 @@ object OutlookGraph {
         var scanned = 0
         var added = 0
         var flagged = 0
+        var bankSender = 0
+        var parsedCount = 0
+        var excludedByDate = 0
+        var unrecognized = 0
         while (next != null && pages < 6) {
             val (http, response) = request(next, bearer = token)
             require(http in 200..299) { "Graph: " + remoteError(response) }
@@ -258,8 +262,20 @@ object OutlookGraph {
             for (i in 0 until list.length()) {
                 val email = list.optJSONObject(i) ?: continue
                 scanned++
-                val parsed = ChileBankEmailParser.parse(email, suffix) ?: continue
-                if (!LocalDate.parse(parsed.operationDate).isAfter(cutoff)) continue
+                val sender = email.optJSONObject("sender")?.optJSONObject("emailAddress")?.optString("address").orEmpty()
+                val knownBankSender = sender.equals("enviodigital@bancochile.cl", true) ||
+                    sender.equals("serviciodetransferencias@bancochile.cl", true)
+                if (knownBankSender) bankSender++
+                val parsed = ChileBankEmailParser.parse(email, suffix)
+                if (parsed == null) {
+                    if (knownBankSender) unrecognized++
+                    continue
+                }
+                parsedCount++
+                if (!LocalDate.parse(parsed.operationDate).isAfter(cutoff)) {
+                    excludedByDate++
+                    continue
+                }
                 val duplicate = ChileBankEmailParser.possibleDuplicate(parsed, history)
                 val candidate = if (duplicate) parsed.copy(
                     status = "POSIBLE_DUPLICADO",
@@ -278,6 +294,6 @@ object OutlookGraph {
             }
         }
         prefs(context).edit().putLong("last_sync", System.currentTimeMillis()).apply()
-        OutlookSyncResult(scanned, added, flagged)
+        OutlookSyncResult(scanned, added, flagged, bankSender, parsedCount, excludedByDate, unrecognized)
     }
 }
