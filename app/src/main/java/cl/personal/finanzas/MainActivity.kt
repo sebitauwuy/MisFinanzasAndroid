@@ -248,6 +248,11 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
         dao.plannedExpenses().map<List<PlannedExpense>, List<PlannedExpense>?> { it }
     }.collectAsState(initial = null)
     val plannedExpenses = loadedPlannedExpenses.orEmpty()
+    LaunchedEffect(loadedObligations, loadedPlannedExpenses) {
+        if (loadedObligations != null && loadedPlannedExpenses != null) {
+            PaymentDueWidgetUpdater.render(context, obligations, plannedExpenses)
+        }
+    }
     LaunchedEffect(loadedObligations) {
         if (loadedObligations != null) {
             try { FinanceReminderScheduler.reschedule(context, loadedObligations.orEmpty()) }
@@ -267,6 +272,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
     var accountConfigured by remember { mutableStateOf(AccountCatalog.isConfigured(context)) }
     var visibleAccounts by remember { mutableStateOf(AccountCatalog.selected(context)) }
     var managingAccounts by remember { mutableStateOf(false) }
+    var widgetDetails by remember { mutableStateOf(PaymentDueWidgetSettings.showDetails(context)) }
     LaunchedEffect(foregroundEvent, unlocked, accountConfigured, loadedObligations, loadedPlannedExpenses) {
         // Solo se pregunta una vez por entrada a la app, después de las 17:00.
         // La actualización de Room o la navegación no vuelven a abrir el diálogo.
@@ -821,6 +827,26 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             Text("Si activas el bloqueo, se solicitará al iniciar de nuevo la app. La base de datos local todavía no tiene cifrado de archivo.", style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { unlocked = false; requestUnlock() }, enabled = lockEnabled) { Text("Bloquear ahora") }
                             Spacer(Modifier.height(20.dp))
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            FinanceSettingsGroup("Widget de pantalla de inicio", "Pagos que vencen hoy", expandedAtStart = false) {
+                                Text("Añade el widget desde la pantalla de inicio de Android: mantén pulsado un espacio vacío → Widgets → Mis Finanzas.",
+                                    style = MaterialTheme.typography.bodySmall)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Mostrar nombres e importes")
+                                        Text("Desactivado por privacidad: el widget mostrará únicamente la cantidad de pagos pendientes.",
+                                            style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Switch(checked = widgetDetails, onCheckedChange = { enabled ->
+                                        if (PaymentDueWidgetSettings.setShowDetails(context, enabled)) {
+                                            widgetDetails = enabled
+                                            PaymentDueWidgetUpdater.render(context, obligations, plannedExpenses)
+                                        }
+                                    })
+                                }
+                                Text("El widget se actualiza al cambiar registros mientras la app está abierta y periódicamente mediante Android. No marca pagos ni cambia saldos.",
+                                    style = MaterialTheme.typography.bodySmall)
                             }
                             Spacer(Modifier.height(12.dp))
                             FinanceSettingsGroup("Recordatorios", "Cobros y créditos con avisos independientes", expandedAtStart = false) {
