@@ -490,6 +490,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                         chileDue = billingPrefs.getInt("chileDue", 5).toString()
                         cmrClose = billingPrefs.getInt("cmrClose", 12).toString()
                         cmrDue = billingPrefs.getInt("cmrDue", 25).toString()
+                        FinanceReminderScheduler.reschedule(context, dao.allObligations())
                         Toast.makeText(context, "Respaldo restaurado", Toast.LENGTH_LONG).show() }
                     catch (e: Exception) { Toast.makeText(context, "No se restauró: ${e.message}", Toast.LENGTH_LONG).show() }
                 }
@@ -534,7 +535,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                             Column(Modifier.weight(1f)) {
                                 Text("Mis Finanzas", color = Color.White,
                                     style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("v1.5 · TUS FINANZAS EN ORDEN", color = FinancePalette.Cyan,
+                                Text("v1.6 · TUS FINANZAS EN ORDEN", color = FinancePalette.Cyan,
                                     style = MaterialTheme.typography.labelSmall)
                             }
                             Surface(color = Color.White.copy(alpha = 0.13f),
