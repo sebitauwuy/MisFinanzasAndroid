@@ -1424,7 +1424,7 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
                         Row(Modifier.padding(12.dp)) {
                             Column(Modifier.weight(1f)) {
                                 Text(m.description.ifBlank { "(Sin descripción)" }, style = MaterialTheme.typography.titleMedium)
-                                Text("${AccountCatalog.displayName(m.account)} · ${m.category} · ${m.date}",
+                                Text("${AccountCatalog.displayName(m.account)} · ${m.category} · ${dateForDisplay(m.date)}",
                                     style = MaterialTheme.typography.bodySmall)
                                 Text(money(m.amountClp))
                             }
