@@ -438,12 +438,17 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
     var csvCutoff by remember { mutableStateOf(LocalDate.now().toString()) }
     var csvRealBalance by remember { mutableStateOf("") }
     var csvMessage by remember { mutableStateOf("") }
+    var importError by remember { mutableStateOf<String?>(null) }
     var csvExisting by remember { mutableStateOf<List<Movement>>(emptyList()) }
     var pdfPasswordUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var pdfPasswordInput by remember { mutableStateOf("") }
     var pdfPasswordError by remember { mutableStateOf("") }
     fun loadStatement(uri: android.net.Uri, password: String = "") {
         scope.launch {
+            // No abrir la conciliación cuando el archivo falló al interpretarse.
+            importError = null
+            csvMessage = ""
+            csvPreview = emptyList()
             try {
                 when (val parsed = StatementImport.readDocument(context, uri, csvAccount, password)) {
                     is ImportedStatement.CardSummary -> {
@@ -453,6 +458,9 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                         csvPreview = emptyList()
                     }
                     is ImportedStatement.Movements -> {
+                        require(parsed.items.isNotEmpty()) {
+                            "La cartola no contiene movimientos reconocibles."
+                        }
                         if (parsed.source == "CuentaRUT / BancoEstado" && csvAccount != "BancoEstado") {
                             error("Esta cartola parece ser de CuentaRUT. Selecciona BancoEstado antes de importar.")
                         }
@@ -479,7 +487,8 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                 pdfPasswordUri = null
                 pdfPasswordError = ""
                 csvPreview = emptyList()
-                csvMessage = "No se pudo leer: " + (e.message ?: "formato desconocido")
+                csvMessage = ""
+                importError = e.message ?: "No se pudo interpretar el formato del archivo."
             } finally {
                 // La contraseña vive solo en el estado temporal del formulario.
                 pdfPasswordInput = ""
@@ -533,7 +542,28 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
             }
         )
     }
-    if (csvMessage.isNotBlank()) {
+    if (importError != null) {
+        AlertDialog(
+            onDismissRequest = { importError = null },
+            title = { Text("No se pudo leer la cartola") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(importError.orEmpty(),
+                        color = MaterialTheme.colorScheme.error)
+                    Text("No se importaron movimientos ni se modificaron saldos.",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Text("Si es una cartola de CuentaRUT, necesitamos identificar " +
+                        "los encabezados y el orden de las columnas de ese PDF. " +
+                        "Puedes compartir una captura de la tabla ocultando los datos personales.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { importError = null }) { Text("Entendido") }
+            }
+        )
+    }
+    if (csvMessage.isNotBlank() && csvPreview.isNotEmpty()) {
         val cashImport = AccountCatalog.isCash(csvAccount)
         val asOf = parseDate(csvCutoff)
         val realBalance = csvRealBalance.trim().toLongOrNull()
