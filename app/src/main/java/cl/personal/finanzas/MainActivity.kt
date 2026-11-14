@@ -170,6 +170,11 @@ private fun parseDate(value: String): LocalDate? = try { LocalDate.parse(value) 
 
 class MainActivity : ComponentActivity() {
     private val sharedText = androidx.compose.runtime.mutableStateOf("")
+    private val foregroundEvent = androidx.compose.runtime.mutableIntStateOf(0)
+    override fun onResume() {
+        super.onResume()
+        foregroundEvent.intValue += 1
+    }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -186,13 +191,13 @@ class MainActivity : ComponentActivity() {
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             sharedText.value = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
         }
-        setContent { FinanceApp(db, sharedText.value) { sharedText.value = "" } }
+        setContent { FinanceApp(db, sharedText.value, foregroundEvent.intValue) { sharedText.value = "" } }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsumed: () -> Unit = {}) {
+fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: Int = 0, onSharedTextConsumed: () -> Unit = {}) {
     val dao = db.financeDao()
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("security", 0) }
@@ -225,6 +230,39 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
         }
     }
     var tab by remember { mutableStateOf(0) }
+    var duePaymentPrompt by remember { mutableStateOf<DuePaymentNudge?>(null) }
+    var promptedForegroundEvent by remember { mutableIntStateOf(-1) }
+    var requestedPlannedPaymentId by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(foregroundEvent, unlocked, accountConfigured, loadedObligations, plannedExpenses) {
+        // Solo se pregunta una vez por entrada a la app, después de las 17:00.
+        // La actualización de Room o la navegación no vuelven a abrir el diálogo.
+        if (foregroundEvent > 0 && promptedForegroundEvent != foregroundEvent &&
+            unlocked && accountConfigured && loadedObligations != null &&
+            FinanceReminderSettings.askOnOpeningAfterFive(context) &&
+            java.time.LocalTime.now().hour >= 17) {
+            val today = LocalDate.now()
+            val planned = plannedExpenses.filter { it.active && it.nextDueDate == today.toString() }
+            val installmentsDue = obligations.mapNotNull { obligation ->
+                if (obligation.kind != "Pago" || obligation.paid) null
+                else {
+                    val first = parseDate(obligation.dueDate)
+                    if (first != null && (obligation.paidCount until obligation.installments)
+                            .any { first.plusMonths(it.toLong()) == today }) obligation
+                    else null
+                }
+            }
+            val total = planned.size + installmentsDue.size
+            val first = planned.firstOrNull()?.let {
+                DuePaymentNudge(it.id, "programado", it.title, it.estimatedAmountClp, total)
+            } ?: installmentsDue.firstOrNull()?.let {
+                DuePaymentNudge(it.id, "cuota", it.title, it.amountClp, total)
+            }
+            if (first != null) {
+                promptedForegroundEvent = foregroundEvent
+                duePaymentPrompt = first
+            }
+        }
+    }
     var showEmailImporter by remember { mutableStateOf(false) }
     LaunchedEffect(sharedText) {
         if (sharedText.isNotBlank()) { tab = 1; showEmailImporter = true }
@@ -529,6 +567,22 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
             dismissButton = { TextButton(onClick = { importConfirm = null }) { Text("Cancelar") } })
     }
     FinanceTheme {
+        if (unlocked && accountConfigured && duePaymentPrompt != null) {
+            val nudge = duePaymentPrompt!!
+            DuePaymentNudgeDialog(
+                nudge = nudge,
+                onReview = {
+                    duePaymentPrompt = null
+                    if (nudge.kind == "programado") {
+                        requestedPlannedPaymentId = nudge.id
+                        tab = 5
+                    } else {
+                        tab = 2
+                    }
+                },
+                onLater = { duePaymentPrompt = null }
+            )
+        }
         if (!unlocked) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp), verticalArrangement = Arrangement.Center) {
                 Text("Mis Finanzas", style = MaterialTheme.typography.headlineLarge)
@@ -681,7 +735,15 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                         }
                         2 -> ObligationScreen(obligations.filter { it.kind == "Pago" }, "Pago", dao, scope, visibleAccounts, movements)
                         3 -> ObligationScreen(obligations.filter { it.kind == "Reembolso" }, "Reembolso", dao, scope, visibleAccounts)
-                        5 -> PlannedExpensesScreen(db, plannedExpenses, movements, visibleAccounts) { tab = 0 }
+                        5 -> PlannedExpensesScreen(
+                            db = db,
+                            plans = plannedExpenses,
+                            movements = movements,
+                            visibleAccounts = visibleAccounts,
+                            onBack = { tab = 0 },
+                            requestedPaymentId = requestedPlannedPaymentId,
+                            onPaymentRequestConsumed = { requestedPlannedPaymentId = null }
+                        )
                         else -> {
                             Spacer(Modifier.height(16.dp))
                             FinanceSettingsGroup("Mis cuentas", "Selecciona qué cuentas quieres ver", expandedAtStart = true) {
