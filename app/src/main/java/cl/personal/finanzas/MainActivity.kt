@@ -520,7 +520,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                             Column(Modifier.weight(1f)) {
                                 Text("Mis Finanzas", color = Color.White,
                                     style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("v1.3 · TUS FINANZAS EN ORDEN", color = FinancePalette.Cyan,
+                                Text("v1.4 · TUS FINANZAS EN ORDEN", color = FinancePalette.Cyan,
                                     style = MaterialTheme.typography.labelSmall)
                             }
                             Surface(color = Color.White.copy(alpha = 0.13f),
@@ -790,7 +790,7 @@ fun Dashboard(
     val leadingAccount = automaticBankOrder.firstOrNull()
     val totalColor = when (balanceTheme) {
         "custom" -> hexFinanceColor(customHex) ?: FinancePalette.Navy
-        "auto" -> leadingAccount?.let(::cardColor) ?: FinancePalette.Navy
+        "auto" -> leadingAccount?.let { cardColor(it) } ?: FinancePalette.Navy
         else -> cardColor(balanceTheme)
     }
     if (themeDialog) {
@@ -1014,7 +1014,7 @@ fun Dashboard(
         }
         item {
             Text("Disponible por cuenta", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Ordenadas por saldo (mayor a menor). Mantén pulsada una tarjeta para cambiar el color o moverla.",
+            Text(if (manualBankOrder == null) "Orden automático: mayor a menor saldo. Mantén pulsada una tarjeta para moverla o cambiar su color." else "Orden personalizado. Mantén pulsada una tarjeta para moverla o cambiar su color.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
             displayedBankOrder.chunked(2).forEach { pair ->
