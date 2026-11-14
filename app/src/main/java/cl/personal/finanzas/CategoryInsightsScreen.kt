@@ -93,7 +93,7 @@ fun CategoryInsightsScreen(movements: List<Movement>, onBack: () -> Unit) {
             Text("Análisis y presupuestos", style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold)
         }
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp),
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 112.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Card {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
