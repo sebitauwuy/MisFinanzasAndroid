@@ -651,7 +651,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             Column(Modifier.weight(1f)) {
                                 Text("Mis Finanzas", color = Color.White,
                                     style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("v1.12 · TUS FINANZAS EN ORDEN", color = FinancePalette.Cyan,
+                                Text("v1.13 · TUS FINANZAS EN ORDEN", color = FinancePalette.Cyan,
                                     style = MaterialTheme.typography.labelSmall)
                             }
                             Surface(color = Color.White.copy(alpha = 0.13f),
