@@ -9,6 +9,41 @@ import java.time.format.DateTimeFormatter
 
 /** Importación local de XLS Falabella, TXT Banco de Chile y CSV genéricos; no se conecta al banco. */
 object StatementImport {
+    /**
+     * Entrada única para todos los formatos y cuentas. Detecta por firma PDF/XLS,
+     * no por la institución elegida. Los lectores rechazan estructuras ambiguas.
+     */
+    suspend fun readDocument(
+        context: Context, uri: Uri, account: String, password: String = ""
+    ): ImportedStatement = withContext(Dispatchers.IO) {
+        val stream = context.contentResolver.openInputStream(uri)
+            ?: error("No se pudo abrir la cartola.")
+        val bytes = stream.use { input ->
+            val output = java.io.ByteArrayOutputStream()
+            val chunk = ByteArray(8192)
+            while (true) {
+                val n = input.read(chunk)
+                if (n < 0) break
+                require(output.size() + n <= 10_000_000) {
+                    "Archivo demasiado grande (máximo 10 MB)."
+                }
+                output.write(chunk, 0, n)
+            }
+            output.toByteArray()
+        }
+        require(bytes.isNotEmpty()) { "El archivo está vacío." }
+        val pdf = bytes.size >= 5 &&
+            String(bytes, 0, 5, Charsets.US_ASCII) == "%PDF-"
+        if (pdf) {
+            PdfStatementReader.read(context, bytes, account, password)
+        } else {
+            // Conservamos los importadores XLS binario, CSV y TXT existentes.
+            val source = if (FalabellaDebitXlsReader.isBinaryXls(bytes))
+                "XLS de movimientos" else "CSV / TXT de movimientos"
+            ImportedStatement.Movements(read(context, uri, account), source)
+        }
+    }
+
     suspend fun read(context: Context, uri: Uri, account: String): List<Movement> = withContext(Dispatchers.IO) {
         val stream = context.contentResolver.openInputStream(uri) ?: error("Archivo inaccesible")
         val bytes = stream.use { it.readBytes() }
