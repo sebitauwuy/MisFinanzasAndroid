@@ -100,6 +100,8 @@ interface FinanceDao {
     @Query("SELECT * FROM movements ORDER BY date DESC, id DESC")
     fun movements(): Flow<List<Movement>>
     @Insert suspend fun insertMovement(value: Movement): Long
+    @Query("SELECT * FROM movements WHERE id = :id LIMIT 1")
+    suspend fun getMovementById(id: Long): Movement?
     @Delete suspend fun deleteMovement(value: Movement)
     @Query("SELECT * FROM movements ORDER BY id") suspend fun allMovements(): List<Movement>
     @Query("DELETE FROM movements") suspend fun clearMovements()
@@ -122,6 +124,16 @@ interface FinanceDao {
     @Update suspend fun updatePlannedExpense(plan: PlannedExpense)
     @Delete suspend fun deletePlannedExpense(plan: PlannedExpense)
     @Query("DELETE FROM planned_expenses") suspend fun clearPlannedExpenses()
+    @Query("SELECT * FROM planned_expense_links ORDER BY linkedAt DESC")
+    fun plannedExpenseLinks(): Flow<List<PlannedExpenseLink>>
+    @Query("SELECT * FROM planned_expense_links ORDER BY linkedAt DESC")
+    suspend fun allPlannedExpenseLinks(): List<PlannedExpenseLink>
+    @Query("SELECT * FROM planned_expense_links WHERE movementId = :movementId LIMIT 1")
+    suspend fun getPlannedExpenseLink(movementId: Long): PlannedExpenseLink?
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertPlannedExpenseLink(link: PlannedExpenseLink)
+    @Delete suspend fun deletePlannedExpenseLink(link: PlannedExpenseLink)
+    @Query("DELETE FROM planned_expense_links") suspend fun clearPlannedExpenseLinks()
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMailCandidate(candidate: MailCandidate): Long
     @Query("SELECT * FROM mail_candidates ORDER BY operationDate DESC, sourceId DESC")
@@ -135,7 +147,7 @@ interface FinanceDao {
     suspend fun markMailCandidate(id: String, status: String)
 }
 
-@Database(entities = [Movement::class, Obligation::class, MailCandidate::class, PlannedExpense::class], version = 5, exportSchema = false)
+@Database(entities = [Movement::class, Obligation::class, MailCandidate::class, PlannedExpense::class, PlannedExpenseLink::class], version = 6, exportSchema = false)
 abstract class FinanceDatabase : RoomDatabase() {
     abstract fun financeDao(): FinanceDao
 }
@@ -179,6 +191,24 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS planned_expense_links (
+            movementId INTEGER NOT NULL PRIMARY KEY,
+            planId INTEGER NOT NULL,
+            dueBefore TEXT NOT NULL,
+            dueAfter TEXT NOT NULL,
+            estimateBefore INTEGER NOT NULL,
+            estimateAfter INTEGER NOT NULL,
+            previousPaidDate TEXT NOT NULL,
+            previousPaidAmount INTEGER NOT NULL,
+            previousAlreadyRegistered INTEGER NOT NULL,
+            previousMovementId INTEGER NOT NULL,
+            linkedAt INTEGER NOT NULL
+        )""")
+    }
+}
+
 private val accounts = AccountCatalog.names
 private val clp = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CL"))
 private fun money(value: Long) = clp.format(value)
@@ -203,7 +233,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         val db = Room.databaseBuilder(applicationContext, FinanceDatabase::class.java, "finanzas.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build()
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             sharedText.value = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
         }
@@ -248,6 +278,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
         dao.plannedExpenses().map<List<PlannedExpense>, List<PlannedExpense>?> { it }
     }.collectAsState(initial = null)
     val plannedExpenses = loadedPlannedExpenses.orEmpty()
+    val plannedLinks by remember(dao) { dao.plannedExpenseLinks() }.collectAsState(initial = emptyList())
     LaunchedEffect(loadedObligations, loadedPlannedExpenses) {
         if (loadedObligations != null && loadedPlannedExpenses != null) {
             PaymentDueWidgetUpdater.render(context, obligations, plannedExpenses)
@@ -789,7 +820,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                         } else {
                             Column(Modifier.fillMaxSize()) {
                                 OutlinedButton(onClick = { showEmailImporter = true }) { Text("Importar aviso desde Outlook / Hotmail") }
-                                MovementScreen(movements, dao, scope, visibleAccounts)
+                                MovementScreen(db, movements, plannedExpenses, plannedLinks, dao, scope, visibleAccounts)
                             }
                         }
                         2 -> ObligationScreen(obligations.filter { it.kind == "Pago" }, "Pago", dao, scope, visibleAccounts, movements)
@@ -1555,7 +1586,15 @@ fun AccountPicker(value: String, onChange: (String) -> Unit, choices: List<Strin
 }
 
 @Composable
-fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.coroutines.CoroutineScope, availableAccounts: List<String>) {
+fun MovementScreen(
+    db: FinanceDatabase,
+    movements: List<Movement>,
+    plans: List<PlannedExpense>,
+    links: List<PlannedExpenseLink>,
+    dao: FinanceDao,
+    scope: kotlinx.coroutines.CoroutineScope,
+    availableAccounts: List<String>
+) {
     var description by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var account by remember(availableAccounts) { mutableStateOf(availableAccounts.firstOrNull() ?: "Banco de Chile") }
@@ -1564,6 +1603,17 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
     var search by remember { mutableStateOf("") }
     var selectedAccount by remember { mutableStateOf("Todas") }
+    var movementForPlan by remember { mutableStateOf<Movement?>(null) }
+    var deletionWarning by remember { mutableStateOf("") }
+    if (movementForPlan != null) {
+        LinkPlannedExpenseDialog(
+            db = db,
+            movement = movementForPlan!!,
+            plans = plans,
+            existingLinks = links,
+            onDismiss = { movementForPlan = null }
+        )
+    }
     val weekExpanded = remember { mutableStateMapOf<String, Boolean>() }
     val thisMonday = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
     val lastMonday = thisMonday.minusWeeks(1)
@@ -1596,6 +1646,10 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
             }, modifier = Modifier.fillMaxWidth()) { Text("Guardar movimiento") }
             HorizontalDivider()
             Text("Historial", style = MaterialTheme.typography.titleLarge)
+            Text("En una salida de dinero, usa «Asociar gasto» para marcar un gasto programado como pagado sin volver a descontar el monto.",
+                style = MaterialTheme.typography.bodySmall)
+            if (deletionWarning.isNotBlank()) Text(deletionWarning,
+                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(search, { search = it }, label = { Text("Buscar movimientos") }, modifier = Modifier.fillMaxWidth())
             var expandedFilter by remember { mutableStateOf(false) }
             Box {
@@ -1649,8 +1703,30 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
                                 Text("${AccountCatalog.displayName(m.account)} · ${m.category} · ${dateForDisplay(m.date)}",
                                     style = MaterialTheme.typography.bodySmall)
                                 Text(money(m.amountClp))
+                                val link = links.firstOrNull { it.movementId == m.id }
+                                val legacy = plans.firstOrNull { it.lastPaymentMovementId == m.id }
+                                if (link != null || legacy != null) {
+                                    Text("✓ Gasto programado pagado" +
+                                        (plans.firstOrNull { it.id == link?.planId }?.let { ": " + it.title }
+                                            ?: legacy?.let { ": " + it.title }.orEmpty()),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.tertiary)
+                                }
+                                if (m.amountClp < 0L &&
+                                    m.category !in listOf("Transferencia interna", "Traspaso interno")) {
+                                    TextButton(onClick = { movementForPlan = m }) {
+                                        Text(if (link != null || legacy != null)
+                                            "Ver gasto pagado" else "✓ Asociar gasto")
+                                    }
+                                }
                             }
-                            TextButton(onClick = { scope.launch { dao.deleteMovement(m) } }) { Text("Eliminar") }
+                            TextButton(onClick = {
+                                val linked = links.any { it.movementId == m.id } ||
+                                    plans.any { it.lastPaymentMovementId == m.id && it.lastPaymentMovementId > 0L }
+                                if (linked) deletionWarning =
+                                    "Este movimiento está vinculado a un gasto programado. Desvincúlalo antes de eliminarlo."
+                                else scope.launch { dao.deleteMovement(m) }
+                            }) { Text("Eliminar") }
                         }
                     }
                 }
