@@ -12,6 +12,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.Color
@@ -474,7 +475,7 @@ fun FinanceApp(db: FinanceDatabase) {
                             Column(Modifier.weight(1f)) {
                                 Text("Mis Finanzas", color = Color.White,
                                     style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("TUS FINANZAS EN ORDEN", color = FinancePalette.Cyan,
+                                Text("v1.0 · TUS FINANZAS EN ORDEN", color = FinancePalette.Cyan,
                                     style = MaterialTheme.typography.labelSmall)
                             }
                             Surface(color = Color.White.copy(alpha = 0.13f),
@@ -698,21 +699,21 @@ fun Dashboard(
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
         item {
-            Text("Tu panorama financiero", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Tu resumen", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("Actualizado con tus registros · ${today.dayOfMonth}/${today.monthValue}/${today.year}",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF34245C)), shape = RoundedCornerShape(22.dp)) {
+            Card(colors = CardDefaults.cardColors(containerColor = FinancePalette.Navy), shape = RoundedCornerShape(26.dp)) {
                 Column(Modifier.fillMaxWidth().padding(22.dp)) {
-                    Text("DINERO DISPONIBLE REGISTRADO", color = Color(0xFFD8CBF5), style = MaterialTheme.typography.labelMedium)
+                    Text("DISPONIBLE REGISTRADO", color = FinancePalette.Cyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
                     Text(money(balance), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
-                    Text("Cuentas y billeteras activas · No es saldo bancario en tiempo real", color = Color(0xFFE4DDF1), style = MaterialTheme.typography.bodySmall)
+                    Text("${cashAccounts.size} cuenta(s) activas · Saldo local, no bancario en tiempo real", color = Color(0xFFCAD8EE), style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(14.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { onNavigate(1) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF34245C))) { Text("+ Movimiento") }
+                        Button(onClick = { onNavigate(1) }, colors = ButtonDefaults.buttonColors(containerColor = FinancePalette.Cyan, contentColor = FinancePalette.NavyDeep)) { Text("+ Movimiento") }
                         OutlinedButton(onClick = { onNavigate(2) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("Ver pagos") }
                     }
                 }
@@ -731,11 +732,11 @@ fun Dashboard(
             }
         }
         item {
-            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+            Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.fillMaxWidth().border(1.dp, FinancePalette.Border, RoundedCornerShape(20.dp))) {
                 Column(Modifier.fillMaxWidth().padding(18.dp)) {
-                    Text("Proyección de fin de mes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("PROYECCIÓN DE FIN DE MES", style = MaterialTheme.typography.labelLarge, color = FinancePalette.Muted, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(5.dp))
-                    Text(money(balance - dueThisMonth), style = MaterialTheme.typography.headlineMedium)
+                    Text(money(balance - dueThisMonth), style = MaterialTheme.typography.headlineMedium, color = FinancePalette.Navy, fontWeight = FontWeight.Bold)
                     Text("Disponible registrado menos todas las cuotas pendientes del mes (${money(dueThisMonth)}).", style = MaterialTheme.typography.bodySmall)
                     Text("Estimación: no incluye futuros ingresos, gastos variables ni pagos ya reflejados en movimientos.", style = MaterialTheme.typography.bodySmall)
                 }
@@ -773,13 +774,13 @@ fun Dashboard(
         }
         items(visibleAccounts) { account ->
             val amount = (openingBalances[account] ?: 0L) + movementsToDate.filter { it.account == account }.sumOf { it.amountClp }
-            Card(shape = RoundedCornerShape(14.dp)) {
-                Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.fillMaxWidth().border(1.dp, FinancePalette.Border, RoundedCornerShape(18.dp))) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
                         Text(AccountCatalog.displayName(account), fontWeight = FontWeight.SemiBold)
                         Text(money(amount), style = MaterialTheme.typography.titleMedium)
-                        if (account == "CMR" || account == "Tarjeta Chile")
-                            Text("Registro de tarjeta, no dinero disponible", style = MaterialTheme.typography.labelSmall)
+                        if (!AccountCatalog.isCash(account))
+                            Text("Crédito · No suma al disponible", style = MaterialTheme.typography.labelSmall, color = FinancePalette.Muted)
                     }
                     TextButton(onClick = {
                         editingAccount = account
@@ -812,11 +813,19 @@ fun Dashboard(
 
 @Composable
 fun FinanceMetric(label: String, value: String, accent: Color) {
-    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.10f))) {
-        Column(Modifier.fillMaxWidth().padding(13.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = accent)
-            Spacer(Modifier.height(5.dp))
-            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    val radius = RoundedCornerShape(19.dp)
+    Card(
+        modifier = Modifier.fillMaxWidth().border(1.dp, FinancePalette.Border, radius),
+        shape = radius,
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(15.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Box(Modifier.size(8.dp).background(accent, RoundedCornerShape(50)))
+                Text(label, style = MaterialTheme.typography.labelMedium, color = FinancePalette.Muted)
+            }
+            Spacer(Modifier.height(9.dp))
+            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = FinancePalette.Ink)
         }
     }
 }
