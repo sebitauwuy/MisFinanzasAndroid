@@ -50,8 +50,8 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.work:work-runtime-ktx:2.10.5")
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
+    implementation("androidx.room:room-runtime:2.8.5")
+    implementation("androidx.room:room-ktx:2.8.5")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     // Haze 2.1.0: desenfoque de la barra de navegación en Android 12+.
     implementation("dev.chrisbanes.haze:haze:2.1.0")
@@ -59,5 +59,5 @@ dependencies {
     implementation("dev.chrisbanes.haze:haze-blur-materials:2.1.0")
     // Vico: gráfico semanal de gastos.
     implementation("com.patrykandpatrick.vico:compose:3.3.1")
-    kapt("androidx.room:room-compiler:2.6.1")
+    kapt("androidx.room:room-compiler:2.8.5")
 }
