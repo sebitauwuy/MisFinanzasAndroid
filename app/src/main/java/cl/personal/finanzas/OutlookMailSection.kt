@@ -35,6 +35,8 @@ fun OutlookMailSection(db: FinanceDatabase) {
     var prompt by remember { mutableStateOf<OutlookDeviceCode?>(null) }
     var overrideCandidate by remember { mutableStateOf<MailCandidate?>(null) }
     var confirmTransfer by remember { mutableStateOf<MailCandidate?>(null) }
+    var transferDestination by remember { mutableStateOf("MACH") }
+    var transferDuplicateWarning by remember { mutableStateOf(false) }
     var restoreCandidate by remember { mutableStateOf<MailCandidate?>(null) }
     val clp = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CL")) }
 
@@ -127,19 +129,75 @@ fun OutlookMailSection(db: FinanceDatabase) {
 
     if (confirmTransfer != null) {
         val candidate = confirmTransfer!!
+        val ownAccounts = AccountCatalog.selected(context).filter {
+            it != candidate.account && AccountCatalog.isCash(it)
+        }
         AlertDialog(
-            onDismissRequest = { confirmTransfer = null },
-            title = { Text("¿La cuenta de destino es tuya?") },
-            text = { Text("Confirma el banco y los últimos dígitos en el comprobante. El nombre del destinatario puede estar mal guardado. Si es una cuenta propia, no debe contarse como gasto. Si es de otra persona, se registrará como salida.") },
+            onDismissRequest = { confirmTransfer = null; transferDuplicateWarning = false },
+            title = { Text("¿A quién transferiste?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("${candidate.description} · ${clp.format(-candidate.amountClp)}. Comprueba el banco y los últimos dígitos del comprobante: el nombre del destinatario puede ser incorrecto.")
+                    Text("Si es tu cuenta, selecciona el destino. Se descontará del origen y se sumará al destino, sin alterar el total disponible.")
+                    ownAccounts.forEach { account ->
+                        Row {
+                            RadioButton(selected = transferDestination == account,
+                                onClick = { transferDestination = account; transferDuplicateWarning = false })
+                            TextButton(onClick = { transferDestination = account; transferDuplicateWarning = false }) {
+                                Text(AccountCatalog.displayName(account))
+                            }
+                        }
+                    }
+                    if (ownAccounts.isEmpty()) Text("Activa primero la cuenta de destino en Ajustes.")
+                    if (transferDuplicateWarning) Text("Ya existe un movimiento similar en origen o destino. Revisa Movs. antes de continuar; no se registró nada.", color = MaterialTheme.colorScheme.error)
+                }
+            },
             confirmButton = {
-                TextButton(onClick = {
-                    confirmTransfer = null
-                    message = "Transferencia entre cuentas propias: pendiente de vincular origen y destino. No se modificaron saldos."
+                TextButton(enabled = !busy && transferDestination in ownAccounts, onClick = {
+                    busy = true
+                    scope.launch {
+                        try {
+                            var duplicate = false
+                            var excluded = false
+                            db.withTransaction {
+                                val fresh = dao.getMailCandidate(candidate.sourceId) ?: return@withTransaction
+                                if (fresh.status !in listOf("PENDIENTE", "POSIBLE_DUPLICADO")) return@withTransaction
+                                if (!OutlookGraph.isAfterCutoff(context, fresh)) { excluded = true; return@withTransaction }
+                                val amount = kotlin.math.abs(fresh.amountClp)
+                                val origin = fresh.copy(amountClp = -amount)
+                                val destination = fresh.copy(account = transferDestination, amountClp = amount)
+                                val existing = dao.allMovements()
+                                if (ChileBankEmailParser.possibleDuplicate(origin, existing) ||
+                                    ChileBankEmailParser.possibleDuplicate(destination, existing)) {
+                                    duplicate = true
+                                    return@withTransaction
+                                }
+                                dao.insertMovement(Movement(account = fresh.account,
+                                    description = "Traspaso a $transferDestination: ${fresh.description}",
+                                    amountClp = -amount, date = fresh.operationDate, category = "Transferencia interna"))
+                                dao.insertMovement(Movement(account = transferDestination,
+                                    description = "Traspaso desde ${fresh.account}: ${fresh.description}",
+                                    amountClp = amount, date = fresh.operationDate, category = "Transferencia interna"))
+                                dao.markMailCandidate(fresh.sourceId, "IMPORTADO")
+                            }
+                            if (duplicate) {
+                                transferDuplicateWarning = true
+                                message = "Posible traspaso duplicado; no se modificaron saldos."
+                            } else {
+                                confirmTransfer = null
+                                message = if (excluded) "El aviso está antes del saldo conciliado; no se registró."
+                                    else "Traspaso registrado en ambas cuentas. Comprueba los saldos."
+                            }
+                        } catch (e: Exception) {
+                            message = "No se pudo registrar el traspaso: ${e.message}"
+                        } finally { busy = false }
+                    }
                 }) { Text("Es mi cuenta") }
             },
             dismissButton = {
                 TextButton(onClick = {
                     confirmTransfer = null
+                    transferDuplicateWarning = false
                     approve(candidate, false)
                 }) { Text("Es de otra persona") }
             }
@@ -262,7 +320,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = {
                         if (candidate.status == "POSIBLE_DUPLICADO" && candidate.category != "Transferencia interna") overrideCandidate = candidate
-                        else if (candidate.category == "Transferencia") confirmTransfer = candidate
+                        else if (candidate.category == "Transferencia" && candidate.amountClp < 0) { transferDestination = AccountCatalog.selected(context).firstOrNull { it != candidate.account && AccountCatalog.isCash(it) } ?: ""; transferDuplicateWarning = false; confirmTransfer = candidate }
                         else approve(candidate, false)
                     }) { Text(if (candidate.category == "Transferencia interna") "Revisar traspaso" else "Registrar") }
                     TextButton(onClick = {
