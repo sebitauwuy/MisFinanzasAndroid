@@ -168,6 +168,14 @@ fun FinanceApp(db: FinanceDatabase) {
     var visibleAccounts by remember { mutableStateOf(AccountCatalog.selected(context)) }
     var managingAccounts by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    // Sincronización bajo demanda y al abrir la aplicación, nunca registra cargos sin revisión.
+    LaunchedEffect(Unit) {
+        if (OutlookGraph.enabled(context) && OutlookGraph.isConnected(context)) {
+            try { OutlookGraph.sync(context, dao) } catch (_: Exception) {
+                // El usuario puede ver el error usando "Buscar avisos ahora" en Ajustes.
+            }
+        }
+    }
     val billingPrefs = remember { context.getSharedPreferences("billing_cycles", 0) }
     var chileClose by remember { mutableStateOf(billingPrefs.getInt("chileClose", 28).toString()) }
     var chileDue by remember { mutableStateOf(billingPrefs.getInt("chileDue", 5).toString()) }
@@ -556,6 +564,10 @@ fun FinanceApp(db: FinanceDatabase) {
                             Text("Si activas el bloqueo, se solicitará al iniciar de nuevo la app. La base de datos local todavía no tiene cifrado de archivo.", style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { unlocked = false; requestUnlock() }, enabled = lockEnabled) { Text("Bloquear ahora") }
                             Spacer(Modifier.height(20.dp))
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            FinanceSettingsGroup("Outlook / Hotmail", "Detectar compras y transferencias por correo", expandedAtStart = false) {
+                                OutlookMailSection(db)
                             }
                             Spacer(Modifier.height(12.dp))
                             FinanceSettingsGroup("Conexiones bancarias", "Estado de conexiones autorizadas") {
