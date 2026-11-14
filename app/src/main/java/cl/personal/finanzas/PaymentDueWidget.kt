@@ -17,7 +17,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.first
 import java.text.NumberFormat
 import java.time.LocalDate
 import java.util.Locale
@@ -28,6 +27,15 @@ import java.util.concurrent.TimeUnit
  * No desbloquea datos, no registra pagos y no altera saldos.
  * La persona debe añadir el widget desde la pantalla de inicio de Android.
  */
+object PaymentDueWidgetSettings {
+    private const val FILE = "widget_finance_privacy"
+    fun showDetails(context: Context): Boolean =
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean("show_details", false)
+    fun setShowDetails(context: Context, enabled: Boolean): Boolean =
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+            .edit().putBoolean("show_details", enabled).commit()
+}
+
 class PaymentDueWidgetProvider : AppWidgetProvider() {
     override fun onEnabled(context: Context) {
         PaymentDueWidgetUpdater.schedule(context)
@@ -89,11 +97,14 @@ object PaymentDueWidgetUpdater {
         }
         val clp = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CL"))
         val total = titles.sumOf { it.second }
+        val showDetails = PaymentDueWidgetSettings.showDetails(context)
         val summary = if (titles.isEmpty()) "Sin pagos programados para hoy"
-            else titles.size.toString() + " pago(s) · " + clp.format(total)
+            else if (showDetails) titles.size.toString() + " pago(s) · " + clp.format(total)
+            else titles.size.toString() + " pago(s) vencen hoy"
         val detail = if (titles.isEmpty()) "Todo al día según tus registros."
+            else if (!showDetails) "Toca para revisar los pagos en la app."
             else titles.take(2).joinToString("  •  ") { it.first + ": " + clp.format(it.second) } +
-                if (titles.size > 2) "  •  Y " + (titles.size - 2) + " más" else ""
+                (if (titles.size > 2) "  •  Y " + (titles.size - 2) + " más" else "")
         ids.forEach { widgetId ->
             val view = RemoteViews(context.packageName, R.layout.widget_due_payments)
             view.setTextViewText(R.id.widget_summary, summary)
