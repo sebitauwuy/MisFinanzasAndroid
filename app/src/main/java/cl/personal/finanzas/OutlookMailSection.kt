@@ -34,6 +34,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
     var message by remember { mutableStateOf("") }
     var prompt by remember { mutableStateOf<OutlookDeviceCode?>(null) }
     var overrideCandidate by remember { mutableStateOf<MailCandidate?>(null) }
+    var confirmTransfer by remember { mutableStateOf<MailCandidate?>(null) }
     val clp = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CL")) }
 
     fun approve(candidate: MailCandidate, allowDuplicate: Boolean) {
@@ -92,6 +93,27 @@ fun OutlookMailSection(db: FinanceDatabase) {
                 }) { Text("Abrir Microsoft") }
             } },
             confirmButton = { TextButton(onClick = { prompt = null }) { Text("Cerrar") } }
+        )
+    }
+
+    if (confirmTransfer != null) {
+        val candidate = confirmTransfer!!
+        AlertDialog(
+            onDismissRequest = { confirmTransfer = null },
+            title = { Text("¿La cuenta de destino es tuya?") },
+            text = { Text("Confirma el banco y los últimos dígitos en el comprobante. El nombre del destinatario puede estar mal guardado. Si es una cuenta propia, no debe contarse como gasto. Si es de otra persona, se registrará como salida.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmTransfer = null
+                    message = "Transferencia entre cuentas propias: pendiente de vincular origen y destino. No se modificaron saldos."
+                }) { Text("Es mi cuenta") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    confirmTransfer = null
+                    approve(candidate, false)
+                }) { Text("Es de otra persona") }
+            }
         )
     }
 
@@ -211,6 +233,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = {
                         if (candidate.status == "POSIBLE_DUPLICADO" && candidate.category != "Transferencia interna") overrideCandidate = candidate
+                        else if (candidate.category == "Transferencia") confirmTransfer = candidate
                         else approve(candidate, false)
                     }) { Text(if (candidate.category == "Transferencia interna") "Revisar traspaso" else "Registrar") }
                     TextButton(onClick = {
