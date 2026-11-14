@@ -90,6 +90,9 @@ interface FinanceDao {
     suspend fun insertMailCandidate(candidate: MailCandidate): Long
     @Query("SELECT * FROM mail_candidates ORDER BY operationDate DESC, sourceId DESC")
     fun mailCandidates(): Flow<List<MailCandidate>>
+    @Query("SELECT * FROM mail_candidates ORDER BY operationDate DESC")
+    suspend fun allMailCandidates(): List<MailCandidate>
+    @Query("DELETE FROM mail_candidates") suspend fun clearMailCandidates()
     @Query("SELECT * FROM mail_candidates WHERE sourceId = :id LIMIT 1")
     suspend fun getMailCandidate(id: String): MailCandidate?
     @Query("UPDATE mail_candidates SET status = :status WHERE sourceId = :id")
