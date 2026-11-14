@@ -47,6 +47,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
                         blockedByCutoff = true
                         return@withTransaction
                     }
+                    if (fresh.category == "Transferencia interna") { blocked = true; return@withTransaction }
                     if (!allowDuplicate && ChileBankEmailParser.possibleDuplicate(fresh, dao.allMovements())) {
                         dao.markMailCandidate(fresh.sourceId, "POSIBLE_DUPLICADO")
                         blocked = true
@@ -62,6 +63,10 @@ fun OutlookMailSection(db: FinanceDatabase) {
                 if (blockedByCutoff) {
                     message = "Ese movimiento es anterior o igual al saldo inicial: no debe sumarse nuevamente."
                 } else if (blocked) {
+                    if (candidate.category == "Transferencia interna") {
+                        message = "Traspaso interno pendiente: aún no se pueden asociar las dos cuentas automáticamente."
+                        return@launch
+                    }
                     overrideCandidate = candidate
                     message = "Ya existe un monto similar en la cartola. Revisa antes de duplicar."
                 } else message = "Movimiento revisado. Comprueba tu saldo."
@@ -198,9 +203,9 @@ fun OutlookMailSection(db: FinanceDatabase) {
                     Text("Posible duplicado de la cartola", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = {
-                        if (candidate.status == "POSIBLE_DUPLICADO") overrideCandidate = candidate
+                        if (candidate.status == "POSIBLE_DUPLICADO" && candidate.category != "Transferencia interna") overrideCandidate = candidate
                         else approve(candidate, false)
-                    }) { Text("Registrar") }
+                    }) { Text(if (candidate.category == "Transferencia interna") "Revisar traspaso" else "Registrar") }
                     TextButton(onClick = {
                         scope.launch {
                             dao.markMailCandidate(candidate.sourceId, "OMITIDO")
