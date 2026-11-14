@@ -37,6 +37,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.Locale
+import kotlin.math.roundToInt
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -67,10 +68,12 @@ object FinanceReminderSettings {
             json.put(kind, JSONObject().put("enabled", config.enabled)
                 .put("daysBefore", config.daysBefore).put("time", config.time.toString()))
         }
+        json.put("askOnOpenAfter17", askOnOpeningAfterFive(context))
         return json
     }
 
     fun validate(json: JSONObject) {
+        if (json.has("askOnOpenAfter17")) json.getBoolean("askOnOpenAfter17")
         listOf("Reembolso", "Pago").forEach { kind ->
             val value = json.getJSONObject(kind)
             val days = value.getInt("daysBefore")
@@ -82,6 +85,11 @@ object FinanceReminderSettings {
 
     fun restore(context: Context, json: JSONObject) {
         validate(json)
+        if (json.has("askOnOpenAfter17")) {
+            require(setAskOnOpeningAfterFive(context, json.getBoolean("askOnOpenAfter17"))) {
+                "No se pudo guardar el aviso al abrir"
+            }
+        }
         listOf("Reembolso", "Pago").forEach { kind ->
             val value = json.getJSONObject(kind)
             require(save(context, kind, FinanceReminderConfig(value.getBoolean("enabled"),
@@ -90,6 +98,12 @@ object FinanceReminderSettings {
             }
         }
     }
+
+    fun askOnOpeningAfterFive(context: Context): Boolean =
+        prefs(context).getBoolean("ask_on_open_after_17", true)
+
+    fun setAskOnOpeningAfterFive(context: Context, enabled: Boolean): Boolean =
+        prefs(context).edit().putBoolean("ask_on_open_after_17", enabled).commit()
 
     fun save(context: Context, kind: String, config: FinanceReminderConfig): Boolean {
         if (kind != "Pago" && kind != "Reembolso") return false
@@ -223,6 +237,7 @@ fun FinanceReminderSettingsSection(obligations: List<Obligation>) {
     var creditosTime by remember { mutableStateOf(initialCreditos.time.toString().take(5)) }
     var feedback by remember { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
+    var askAfterFive by remember { mutableStateOf(FinanceReminderSettings.askOnOpeningAfterFive(context)) }
 
     fun persist() {
         val cDays = cobrosDays.toIntOrNull()
@@ -236,7 +251,8 @@ fun FinanceReminderSettingsSection(obligations: List<Obligation>) {
         }
         val ok1 = FinanceReminderSettings.save(context, "Reembolso", FinanceReminderConfig(cobrosOn, cDays, cTime))
         val ok2 = FinanceReminderSettings.save(context, "Pago", FinanceReminderConfig(creditosOn, pDays, pTime))
-        if (!ok1 || !ok2) {
+        val ok3 = FinanceReminderSettings.setAskOnOpeningAfterFive(context, askAfterFive)
+        if (!ok1 || !ok2 || !ok3) {
             feedback = "No se pudo guardar la configuración."
             return
         }
@@ -276,11 +292,21 @@ fun FinanceReminderSettingsSection(obligations: List<Obligation>) {
                     val selectedDays = if (kind == "Reembolso") cobrosDays.toIntOrNull() ?: 1
                         else creditosDays.toIntOrNull() ?: 1
                     Text("Anticipación: ${if (selectedDays == 0) "el mismo día" else "$selectedDays día(s) antes"}")
+                    fun changeDays(next: Int) {
+                        val days = next.coerceIn(0, 30).toString()
+                        if (kind == "Reembolso") cobrosDays = days else creditosDays = days
+                    }
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        OutlinedButton(enabled = selectedDays > 0,
+                            onClick = { changeDays(selectedDays - 1) }) { Text("−") }
+                        Text("$selectedDays días", modifier = Modifier.weight(1f),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            style = MaterialTheme.typography.titleMedium)
+                        OutlinedButton(enabled = selectedDays < 30,
+                            onClick = { changeDays(selectedDays + 1) }) { Text("+") }
+                    }
                     Slider(value = selectedDays.toFloat(), valueRange = 0f..30f, steps = 29,
-                        onValueChange = { newValue ->
-                            val days = newValue.toInt().coerceIn(0, 30).toString()
-                            if (kind == "Reembolso") cobrosDays = days else creditosDays = days
-                        })
+                        onValueChange = { newValue -> changeDays(newValue.roundToInt()) })
                     val selectedTime = if (kind == "Reembolso") cobrosTime else creditosTime
                     OutlinedButton(onClick = {
                         val time = runCatching { LocalTime.parse(selectedTime) }
@@ -292,6 +318,16 @@ fun FinanceReminderSettingsSection(obligations: List<Obligation>) {
                     }, modifier = Modifier.fillMaxWidth()) { Text("Hora del aviso: $selectedTime") }
                 }
             }
+        }
+        HorizontalDivider()
+        Text("Al entrar después de las 17:00", style = MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Preguntarme por los pagos que vencen hoy")
+                Text("Al abrir la app después de las 5 p. m. podrás registrar los gastos programados o revisar las cuotas. No se descontará dinero sin confirmación.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = askAfterFive, onCheckedChange = { askAfterFive = it })
         }
         Button(enabled = !saving, modifier = Modifier.fillMaxWidth(), onClick = {
             val needsPermission = Build.VERSION.SDK_INT >= 33 &&
