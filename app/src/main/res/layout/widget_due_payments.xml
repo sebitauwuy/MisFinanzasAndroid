@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center_vertical"
+    android:padding="16dp"
+    android:background="@drawable/widget_due_bg">
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="MIS FINANZAS · VENCEN HOY"
+        android:textColor="#1246A0"
+        android:textSize="12sp"
+        android:textStyle="bold"/>
+    <TextView
+        android:id="@+id/widget_summary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:text="Cargando pagos..."
+        android:textColor="#071F50"
+        android:textSize="17sp"
+        android:textStyle="bold"
+        android:maxLines="2"
+        android:ellipsize="end"/>
+    <TextView
+        android:id="@+id/widget_detail"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="5dp"
+        android:text="Toca para abrir Mis Finanzas"
+        android:textColor="#465B70"
+        android:textSize="12sp"
+        android:maxLines="3"
+        android:ellipsize="end"/>
+</LinearLayout>
