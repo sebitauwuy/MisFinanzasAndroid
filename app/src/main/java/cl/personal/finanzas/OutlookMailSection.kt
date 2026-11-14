@@ -229,11 +229,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
         modifier = Modifier.fillMaxWidth(), singleLine = true,
         label = { Text("Últimos 4 dígitos de cuenta Banco de Chile") }
     )
-    OutlinedTextField(
-        value = cutoff, onValueChange = { cutoff = it.take(10) },
-        modifier = Modifier.fillMaxWidth(), singleLine = true,
-        label = { Text("Fecha del saldo ya conciliado (AAAA-MM-DD)") }
-    )
+    CalendarDateField(cutoff, { cutoff = it }, "Fecha del saldo ya conciliado")
     OutlinedTextField(
         value = cutoffClock, onValueChange = { cutoffClock = it.take(5) },
         modifier = Modifier.fillMaxWidth(), singleLine = true,
