@@ -380,9 +380,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                     Text(csvMessage)
                     if (firstStatementDate != null && lastStatementDate != null)
                         Text("Fechas de la cartola: $firstStatementDate a $lastStatementDate", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(csvCutoff, { csvCutoff = it },
-                        label = { Text("Fecha del saldo bancario (AAAA-MM-DD)") },
-                        modifier = Modifier.fillMaxWidth())
+                    CalendarDateField(csvCutoff, { csvCutoff = it }, "Fecha del saldo bancario")
                     OutlinedTextField(csvRealBalance, { csvRealBalance = it.filter { c -> c.isDigit() || c == '-' } },
                         label = { Text("Saldo real del banco (CLP)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -478,7 +476,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
             title = { Text("Conciliar saldo de ${AccountCatalog.displayName(account)}") },
             text = { Column {
                 Text("Indica el saldo que muestra tu banco y la fecha. No se borran movimientos ni se crean ingresos.")
-                OutlinedTextField(reconcileDate, { reconcileDate = it }, label = { Text("Fecha (AAAA-MM-DD)") })
+                CalendarDateField(reconcileDate, { reconcileDate = it }, "Fecha de conciliación")
                 OutlinedTextField(reconcileAmount, { reconcileAmount = it.filter { c -> c.isDigit() || c == '-' } }, label = { Text("Saldo real CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 if (asOf != null && opening != null) {
                     Text("Saldo inicial nuevo: ${money(opening)}")
@@ -1363,7 +1361,7 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
             OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text("Monto CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             AccountPicker(account, { account = it }, availableAccounts)
             OutlinedTextField(category, { category = it }, label = { Text("Categoría") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(date, { date = it }, label = { Text("Fecha AAAA-MM-DD") }, modifier = Modifier.fillMaxWidth())
+            CalendarDateField(date, { date = it }, "Fecha del movimiento")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(expense, { expense = true }, label = { Text("Gasto") })
                 FilterChip(!expense, { expense = false }, label = { Text("Ingreso") })
@@ -1460,8 +1458,8 @@ fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, sco
             OutlinedTextField(title, { title = it }, label = { Text(if (kind == "Pago") "Compra o cuenta" else "Persona y motivo") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text(if (kind == "Pago") "Valor de cada cuota CLP" else "Monto a cobrar CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             AccountPicker(account, { account = it }, availableAccounts)
-            OutlinedTextField(date, { date = it }, label = { Text("Primer vencimiento AAAA-MM-DD") }, modifier = Modifier.fillMaxWidth())
-            if (kind == "Pago") OutlinedTextField(installments, { installments = it.filter(Char::isDigit) }, label = { Text("Cuotas pendientes") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+            CalendarDateField(date, { date = it }, if (kind == "Pago") "Primer vencimiento" else "Fecha de cobro")
+            if (kind == "Pago") OutlinedTextField(installments, { installments = it.filter(Char::isDigit) }, label = { Text("Cantidad total de cuotas") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             val count = if (kind == "Pago") installments.toIntOrNull() ?: 0 else 1
             val valid = title.isNotBlank() && (amount.toLongOrNull() ?: 0L) > 0 && parseDate(date) != null && count in 1..120
             Button(enabled = valid, onClick = {
