@@ -106,7 +106,11 @@ object PdfStatementReader {
                 return@use ImportedStatement.CardSummary(CardPdfReader.fromText(fullText))
             }
             val rows = lines(extractor.glyphs)
-            val movements = parseTable(rows, account)
+            val isCuentaRut = Regex("""CARTOLA\s+CUENTARUT""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(fullText)
+            val movements = if (isCuentaRut)
+                parseCuentaRut(fullText, rows, account)
+            else parseTable(rows, account)
             require(movements.isNotEmpty()) {
                 "No se identificaron filas completas de fecha, descripción, cargos y abonos. " +
                     "El PDF se pudo abrir, pero su diseño aún no está reconocido; no se importó nada."
@@ -141,6 +145,170 @@ object PdfStatementReader {
         val balance = row.position("saldo") ?: return null
         if (!(date < detail && detail < debit && debit < credit && credit < balance)) return null
         return Columns(date, detail, debit, credit, balance)
+    }
+
+
+    /**
+     * Lector del formato real BancoEstado:
+     * Fecha | N° Operación | Descripción | Abonos | Cargos | Saldo.
+     * Verifica sumas y saldos antes de devolver movimientos.
+     */
+    private fun parseCuentaRut(text: String, lines: List<Line>, account: String): List<Movement> {
+        require(account == "BancoEstado") {
+            "Esta cartola es CuentaRUT. Selecciona BancoEstado antes de importar."
+        }
+        fun dateLabel(label: String): LocalDate {
+            val expression = Regex(
+                Regex.escape(label) + """\s*:?\s*(\d{2}/\d{2}/\d{4})""",
+                RegexOption.IGNORE_CASE
+            )
+            val raw = expression.find(text)?.groupValues?.get(1)
+                ?: error("Faltan las fechas de la cartola.")
+            val split = raw.split('/')
+            return LocalDate.of(split[2].toInt(), split[1].toInt(), split[0].toInt())
+        }
+        fun summaryAmount(label: String): Long? {
+            val expression = Regex(
+                Regex.escape(label) + """\s*\$?\s*([0-9][0-9.]*)""",
+                RegexOption.IGNORE_CASE
+            )
+            return expression.find(text)?.groupValues?.get(1)
+                ?.filter(Char::isDigit)?.toLongOrNull()
+        }
+        val firstDate = dateLabel("Fecha Inicio")
+        val finalDate = dateLabel("Fecha Final")
+        require(!finalDate.isBefore(firstDate) &&
+            finalDate.isBefore(firstDate.plusYears(2))) {
+            "El rango de fechas del PDF no es válido."
+        }
+
+        val months = mapOf(
+            "ene" to 1, "feb" to 2, "mar" to 3, "abr" to 4,
+            "may" to 5, "jun" to 6, "jul" to 7, "ago" to 8,
+            "sep" to 9, "sept" to 9, "oct" to 10, "nov" to 11, "dic" to 12
+        )
+        fun rowDate(value: String): LocalDate? {
+            val match = Regex(
+                """^(\d{1,2})/([A-Za-zÁÉÍÓÚáéíóú]{3,4})\.?$"""
+            ).find(value.trim()) ?: return null
+            val month = months[match.groupValues[2].lowercase()] ?: return null
+            val day = match.groupValues[1].toIntOrNull() ?: return null
+            var date = runCatching {
+                LocalDate.of(finalDate.year, month, day)
+            }.getOrNull() ?: return null
+            if (date.isAfter(finalDate)) date = date.minusYears(1)
+            return date.takeIf { !it.isBefore(firstDate) && !it.isAfter(finalDate) }
+        }
+
+        data class Row(
+            val page: Int, val y: Float, val date: LocalDate,
+            val description: StringBuilder, val abono: Long, val cargo: Long,
+            val saldo: Long
+        ) {
+            val signedAmount get() = abono - cargo
+        }
+
+        val parsed = mutableListOf<Row>()
+        var activePage = -1
+        var insideTable = false
+        for (line in lines) {
+            if (line.page != activePage) {
+                activePage = line.page
+                insideTable = false
+            }
+            val label = line.normalized
+            if (label.contains("fecha") && label.contains("abonos") &&
+                label.contains("cargos") && label.contains("saldo")) {
+                insideTable = true
+                continue
+            }
+            if (!insideTable) continue
+
+            // Coordenadas de las columnas en el PDF original (ancho 595 pt).
+            // El número de operación se omite, sin modificar los importes.
+            val dateRaw = line.cell(40f, 112f).replace(" ", "")
+            val date = rowDate(dateRaw)
+            if (date != null) {
+                val abonoRaw = line.cell(346f, 423f)
+                val cargoRaw = line.cell(423f, 500f)
+                val saldoRaw = line.cell(500f, 560f)
+                require(saldoRaw.isNotBlank()) {
+                    "Una fila no tiene saldo: no se importó nada."
+                }
+                val abono = readClp(abonoRaw)
+                val cargo = readClp(cargoRaw)
+                require((abono > 0L) != (cargo > 0L)) {
+                    "Una fila tiene un cargo/abono ambiguo; no se importó nada."
+                }
+                val detail = line.cell(190f, 346f).replace(Regex("""\s+"""), " ").trim()
+                parsed.add(Row(
+                    line.page, line.chars.first().y, date,
+                    StringBuilder(detail), abono, cargo, readClp(saldoRaw)
+                ))
+                require(parsed.size <= 5000) { "Hay demasiados movimientos." }
+            } else {
+                // Descripciones de dos líneas en el diseño CuentaRUT.
+                val last = parsed.lastOrNull()
+                val y = line.chars.first().y
+                if (last != null && last.page == line.page &&
+                    y - last.y in 0f..18f &&
+                    line.cell(40f, 112f).isBlank() &&
+                    line.cell(346f, 560f).isBlank()) {
+                    val additional = line.cell(190f, 346f)
+                        .replace(Regex("""\s+"""), " ").trim()
+                    if (additional.isNotBlank()) {
+                        if (last.description.isNotEmpty()) last.description.append(' ')
+                        last.description.append(additional)
+                    }
+                }
+            }
+        }
+        require(parsed.isNotEmpty()) {
+            "No se reconocieron movimientos de CuentaRUT."
+        }
+
+        // Comprobación de integridad: el archivo está ordenado de nuevo a antiguo.
+        summaryAmount("N° de Movimientos")?.let { count ->
+            require(count == parsed.size.toLong()) {
+                "La cantidad de movimientos no coincide; no se importó nada."
+            }
+        }
+        summaryAmount("Total Abonos")?.let { total ->
+            require(total == parsed.sumOf { it.abono }) {
+                "El total de abonos no coincide; no se importó nada."
+            }
+        }
+        summaryAmount("Total Cargos")?.let { total ->
+            require(total == parsed.sumOf { it.cargo }) {
+                "El total de cargos no coincide; no se importó nada."
+            }
+        }
+        summaryAmount("Saldo Final")?.let { balance ->
+            require(balance == parsed.first().saldo) {
+                "El saldo final no coincide; no se importó nada."
+            }
+        }
+        summaryAmount("Saldo Anterior")?.let { balance ->
+            require(balance == parsed.last().saldo - parsed.last().signedAmount) {
+                "El saldo anterior no coincide; no se importó nada."
+            }
+        }
+        for (i in 0 until parsed.lastIndex) {
+            require(parsed[i].saldo == parsed[i + 1].saldo + parsed[i].signedAmount) {
+                "Un saldo intermedio no coincide; no se importó nada."
+            }
+        }
+        return parsed.map { row ->
+            val detail = row.description.toString().trim()
+            require(detail.isNotBlank()) {
+                "Hay un movimiento sin descripción; no se importó nada."
+            }
+            Movement(
+                account = account, description = detail.take(300),
+                amountClp = row.signedAmount, date = row.date.toString(),
+                category = "Importado"
+            )
+        }
     }
 
     private fun parseTable(rows: List<Line>, account: String): List<Movement> {
