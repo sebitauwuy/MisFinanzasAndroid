@@ -86,7 +86,20 @@ object CreditLimitStore {
         return root
     }
 
+    fun validate(root: JSONObject) {
+        AccountCatalog.names.filterNot(AccountCatalog::isCash).forEach { account ->
+            val obj = root.optJSONObject(account) ?: return@forEach
+            val total = obj.optLong("limit", 0L)
+            val available = obj.optLong("available", -1L)
+            val anchor = obj.optLong("anchor", -1L)
+            require(total in 1L..1_000_000_000_000L && available in 0L..total && anchor >= 0L) {
+                "Cupo de crédito inválido en el respaldo"
+            }
+        }
+    }
+
     fun restore(context: Context, root: JSONObject) {
+        validate(root)
         val saved = mutableMapOf<String, CreditLimitConfig>()
         AccountCatalog.names.filterNot(AccountCatalog::isCash).forEach { account ->
             val obj = root.optJSONObject(account) ?: return@forEach
@@ -145,7 +158,7 @@ fun CreditLimitsSection(movements: List<Movement>, visibleAccounts: List<String>
                         }) { Text(if (config == null) "Configurar" else "Ajustar") }
                     }
                     if (config != null && available != null && used != null) {
-                        Text("Disponible: ${clp.format(available)}", style = MaterialTheme.typography.titleLarge,
+                        Text("Disponible estimado: ${clp.format(available)}", style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold)
                         Text("Cupo total: ${clp.format(config.limitClp)} · Utilizado: ${clp.format(used)}",
                             style = MaterialTheme.typography.bodySmall)
