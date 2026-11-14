@@ -103,6 +103,7 @@ object FinanceBackup {
             }
         } else emptyList()
         val creditLimits = root.optJSONObject("creditLimits")
+        if (creditLimits != null) CreditLimitStore.validate(creditLimits)
         val balances = AccountCatalog.names.associateWith {
             opening?.optLong(it, 0L) ?: 0L
         }
