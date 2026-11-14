@@ -697,6 +697,24 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
     }
 }
 
+private fun bankColor(account: String): Color = when (account) {
+    "Banco de Chile" -> Color(0xFF1246A0)
+    "MACH" -> Color(0xFF7137AD)
+    "Tenpo" -> Color(0xFF15854C)
+    "BancoEstado" -> Color(0xFFE36B24)
+    "Santander" -> Color(0xFFB82F37)
+    "Mercado Pago" -> Color(0xFF168DBD)
+    "Banco Falabella" -> Color(0xFF37823E)
+    "Efectivo" -> Color(0xFF465B70)
+    else -> FinancePalette.Navy
+}
+
+private fun hexFinanceColor(value: String): Color? = try {
+    val hex = value.trim().removePrefix("#")
+    if (hex.length == 6 && hex.all { it in "0123456789abcdefABCDEF" })
+        Color(android.graphics.Color.parseColor("#$hex")) else null
+} catch (_: IllegalArgumentException) { null }
+
 @Composable
 fun Dashboard(
     movements: List<Movement>,
@@ -706,12 +724,63 @@ fun Dashboard(
     onNavigate: (Int) -> Unit,
     onBalanceChange: (String, Long) -> Unit
 ) {
+    val context = LocalContext.current
+    val themePrefs = remember(context) { context.getSharedPreferences("dashboard_theme", android.content.Context.MODE_PRIVATE) }
+    var balanceTheme by remember { mutableStateOf(themePrefs.getString("mode", "auto") ?: "auto") }
+    var customHex by remember { mutableStateOf(themePrefs.getString("hex", "0B2052") ?: "0B2052") }
+    var themeDialog by remember { mutableStateOf(false) }
     val today = LocalDate.now()
     val month = YearMonth.from(today)
     val cashAccounts = visibleAccounts.filter { AccountCatalog.isCash(it) }
     val movementsToDate = movements.filter { parseDate(it.date)?.isAfter(today) != true }
     val balance = cashAccounts.sumOf { account ->
         (openingBalances[account] ?: 0L) + movementsToDate.filter { it.account == account }.sumOf { it.amountClp }
+    }
+    val leadingAccount = cashAccounts.maxByOrNull { account ->
+        (openingBalances[account] ?: 0L) + movementsToDate.filter { it.account == account }.sumOf { it.amountClp }
+    }
+    val totalColor = when (balanceTheme) {
+        "custom" -> hexFinanceColor(customHex) ?: FinancePalette.Navy
+        "auto" -> leadingAccount?.let(::bankColor) ?: FinancePalette.Navy
+        else -> bankColor(balanceTheme)
+    }
+    if (themeDialog) {
+        AlertDialog(
+            onDismissRequest = { themeDialog = false },
+            title = { Text("Color del saldo total") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text("Automático: usa el color de la cuenta con mayor saldo.")
+                    listOf("auto" to "Automático (mayor saldo)",
+                        "Banco de Chile" to "Azul · Banco de Chile",
+                        "MACH" to "Morado · MACH",
+                        "Tenpo" to "Verde · Tenpo",
+                        "BancoEstado" to "Naranja · BancoEstado",
+                        "Santander" to "Rojo · Santander",
+                        "Mercado Pago" to "Celeste · Mercado Pago",
+                        "custom" to "Color personalizado").forEach { (key, label) ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = balanceTheme == key, onClick = { balanceTheme = key })
+                            TextButton(onClick = { balanceTheme = key }) { Text(label) }
+                        }
+                    }
+                    if (balanceTheme == "custom") {
+                        OutlinedTextField(value = customHex, onValueChange = { customHex = it.take(7) },
+                            label = { Text("Color hexadecimal (ej. 0B2052)") }, singleLine = true)
+                        if (hexFinanceColor(customHex) == null) Text("Ingresa seis caracteres hexadecimales.",
+                            color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = balanceTheme != "custom" || hexFinanceColor(customHex) != null,
+                    onClick = {
+                        themePrefs.edit().putString("mode", balanceTheme).putString("hex", customHex).apply()
+                        themeDialog = false
+                    }) { Text("Guardar") }
+            },
+            dismissButton = { TextButton(onClick = { themeDialog = false }) { Text("Cerrar") } }
+        )
     }
     val monthMovements = movementsToDate.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == month } == true }
     val income = monthMovements.filter { it.amountClp > 0 && it.account in cashAccounts }.sumOf { it.amountClp }
@@ -759,13 +828,15 @@ fun Dashboard(
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = FinancePalette.Navy), shape = RoundedCornerShape(26.dp)) {
+            Card(colors = CardDefaults.cardColors(containerColor = totalColor), shape = RoundedCornerShape(26.dp)) {
                 Column(Modifier.fillMaxWidth().padding(22.dp)) {
-                    Text("DISPONIBLE REGISTRADO", color = FinancePalette.Cyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Text("DISPONIBLE REGISTRADO", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
                     Text(money(balance), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
                     Text("${cashAccounts.size} cuenta(s) activas · Saldo local, no bancario en tiempo real", color = Color(0xFFCAD8EE), style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { themeDialog = true }, colors = ButtonDefaults.textButtonColors(contentColor = Color.White)) { Text("🎨 Personalizar color") }
                     Spacer(Modifier.height(14.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { onNavigate(1) }, colors = ButtonDefaults.buttonColors(containerColor = FinancePalette.Cyan, contentColor = FinancePalette.NavyDeep)) { Text("+ Movimiento") }
@@ -787,12 +858,12 @@ fun Dashboard(
                         Card(
                             modifier = Modifier.weight(1f).padding(bottom = 10.dp),
                             shape = RoundedCornerShape(18.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color.White),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, FinancePalette.Border)
+                            colors = CardDefaults.cardColors(containerColor = bankColor(account)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, bankColor(account))
                         ) {
                             Column(Modifier.fillMaxWidth().padding(14.dp)) {
                                 Text(AccountCatalog.displayName(account), style = MaterialTheme.typography.labelMedium,
-                                    color = FinancePalette.Muted, maxLines = 2)
+                                    color = Color.White, maxLines = 2)
                                 Spacer(Modifier.height(6.dp))
                                 Text(money(amount), style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold, color = FinancePalette.Navy)
