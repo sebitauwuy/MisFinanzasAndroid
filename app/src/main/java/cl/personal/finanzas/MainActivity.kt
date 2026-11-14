@@ -866,7 +866,7 @@ fun Dashboard(
                                     color = Color.White, maxLines = 2)
                                 Spacer(Modifier.height(6.dp))
                                 Text(money(amount), style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold, color = FinancePalette.Navy)
+                                    fontWeight = FontWeight.Bold, color = Color.White)
                             }
                         }
                     }
