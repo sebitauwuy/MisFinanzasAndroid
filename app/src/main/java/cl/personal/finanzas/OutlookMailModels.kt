@@ -5,6 +5,7 @@ import androidx.room.PrimaryKey
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -31,6 +32,15 @@ object ChileBankEmailParser {
     private val destination = Regex("""(?is)cuenta\s+(?:de\s+)?destino\s*[:|]?\s*(.{1,160}?)\s*(?:\bmonto\b|\bnúmero\b|\bnro\b)""")
 
 
+    fun operationTime(candidate: MailCandidate): LocalTime? =
+        Regex("""Hora operación: (\d{2}:\d{2})""").find(candidate.note)?.groupValues?.get(1)?.let {
+            try { LocalTime.parse(it) } catch (_: Exception) { null }
+        }
+
+    private fun transferTime(body: String): String? =
+        Regex("""(?i)(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\s+\d{1,2}\s+de\s+[a-záéíóú]+\s+de\s+\d{4}\s+(\d{2}:\d{2})""")
+            .find(body)?.groupValues?.get(1)
+
     private fun parseNewTransfer(body: String, subject: String, hash: String, suffix: String): MailCandidate? {
         if (subject !in setOf("transferencia a terceros", "transferencia entre mis cuentas")) return null
         val normalized = body.replace(Regex("""\s+"""), " ")
@@ -55,6 +65,7 @@ object ChileBankEmailParser {
                 months[dateMatch.groupValues[2].lowercase(Locale.ROOT)] ?: return null,
                 dateMatch.groupValues[1].toInt())
         } catch (_: Exception) { return null }
+        val time = transferTime(normalized)
         val recipient = Regex("""(?is)Nombre\s+y\s+Apellido\s+(.+?)\s+Rut\b""")
             .find(dest)?.groupValues?.get(1)?.trim()?.take(65)
         return MailCandidate(
@@ -62,8 +73,8 @@ object ChileBankEmailParser {
             description = if (internal) "Traspaso entre mis cuentas" else "Transferencia a ${recipient ?: "tercero"}",
             amountClp = if (internal && destMatch && !originMatch) value else -value,
             category = if (internal) "Transferencia interna" else "Transferencia",
-            note = if (internal) "Requiere asociar ambas cuentas propias. No registrar como gasto ni ingreso."
-                else "Transferencia enviada; comprobar contra cartola."
+            note = (if (internal) "Requiere asociar ambas cuentas propias. No registrar como gasto ni ingreso."
+                else "Transferencia enviada; comprobar contra cartola.") + (time?.let { " Hora operación: $it" } ?: "")
         )
     }
 
@@ -97,7 +108,7 @@ object ChileBankEmailParser {
             return MailCandidate(
                 sourceId = hash, operationDate = dateValue.toString(),
                 description = "Pago:$merchant", amountClp = -value,
-                category = "Compra", note = "Aviso por correo; comprueba con tu cartola"
+                category = "Compra", note = "Aviso por correo; comprueba con tu cartola. Hora operación: ${m.groupValues[5]}"
             )
         }
         parseNewTransfer(body, subject, hash, accountLast4)?.let { return it }
