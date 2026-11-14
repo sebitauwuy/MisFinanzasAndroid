@@ -63,6 +63,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.room.*
 import androidx.room.withTransaction
@@ -400,17 +401,6 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
     var reconcileDate by remember { mutableStateOf(LocalDate.now().toString()) }
     var cardPdfReport by remember { mutableStateOf<CardPdfReport?>(null) }
     var cardPdfError by remember { mutableStateOf<String?>(null) }
-    val cardPdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
-            cardPdfReport = null
-            cardPdfError = null
-            try {
-                cardPdfReport = CardPdfReader.read(context, uri)
-            } catch (e: Exception) {
-                cardPdfError = e.message ?: "No se pudo leer el PDF"
-            }
-        }
-    }
     if (cardPdfReport != null || cardPdfError != null) {
         val report = cardPdfReport
         AlertDialog(
@@ -449,19 +439,99 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
     var csvRealBalance by remember { mutableStateOf("") }
     var csvMessage by remember { mutableStateOf("") }
     var csvExisting by remember { mutableStateOf<List<Movement>>(emptyList()) }
-    val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
+    var pdfPasswordUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pdfPasswordInput by remember { mutableStateOf("") }
+    var pdfPasswordError by remember { mutableStateOf("") }
+    fun loadStatement(uri: android.net.Uri, password: String = "") {
+        scope.launch {
             try {
-                csvPreview = StatementImport.read(context, uri, csvAccount)
-                csvCutoff = LocalDate.now().toString()
-                csvRealBalance = ""
-                csvExisting = dao.allMovements()
-                csvMessage = "Cartola leída: ${csvPreview.size} movimientos. Confirma el saldo real y su fecha antes de importar."
-            } catch (e: Exception) {
+                when (val parsed = StatementImport.readDocument(context, uri, csvAccount, password)) {
+                    is ImportedStatement.CardSummary -> {
+                        cardPdfReport = parsed.report
+                        cardPdfError = null
+                        csvMessage = ""
+                        csvPreview = emptyList()
+                    }
+                    is ImportedStatement.Movements -> {
+                        if (parsed.source == "CuentaRUT / BancoEstado" && csvAccount != "BancoEstado") {
+                            error("Esta cartola parece ser de CuentaRUT. Selecciona BancoEstado antes de importar.")
+                        }
+                        csvPreview = parsed.items
+                        csvCutoff = LocalDate.now().toString()
+                        csvRealBalance = ""
+                        csvExisting = dao.allMovements()
+                        csvMessage = "Cartola leída (" + parsed.source + "): " +
+                            parsed.items.size + " movimientos. Revisa fechas, cargos y abonos. " +
+                            if (AccountCatalog.isCash(csvAccount))
+                                "Confirma el saldo real del banco antes de guardar."
+                            else "Se importarán movimientos, sin modificar ningún saldo inicial."
+                    }
+                }
+                pdfPasswordUri = null
+                pdfPasswordError = ""
+            } catch (_: PdfPasswordRequiredException) {
+                pdfPasswordUri = uri
+                pdfPasswordError = if (password.isEmpty()) "" else
+                    "Contraseña incorrecta o PDF no desbloqueable. Intenta nuevamente."
+                csvMessage = ""
                 csvPreview = emptyList()
-                csvMessage = "No se pudo leer: ${e.message}"
+            } catch (e: Exception) {
+                pdfPasswordUri = null
+                pdfPasswordError = ""
+                csvPreview = emptyList()
+                csvMessage = "No se pudo leer: " + (e.message ?: "formato desconocido")
+            } finally {
+                // La contraseña vive solo en el estado temporal del formulario.
+                pdfPasswordInput = ""
             }
         }
+    }
+    val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) loadStatement(uri)
+    }
+    if (pdfPasswordUri != null) {
+        val pending = pdfPasswordUri!!
+        AlertDialog(
+            onDismissRequest = {
+                pdfPasswordUri = null
+                pdfPasswordInput = ""
+                pdfPasswordError = ""
+            },
+            title = { Text("Desbloquear PDF") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Ingresa la contraseña de apertura de esta cartola. Se utiliza solo " +
+                        "para leer el archivo en tu teléfono; no se guarda ni se envía.")
+                    Text("No ingreses aquí tu clave bancaria, clave de internet o PIN.",
+                        style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(
+                        value = pdfPasswordInput,
+                        onValueChange = { pdfPasswordInput = it },
+                        label = { Text("Contraseña del archivo PDF") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        singleLine = true, modifier = Modifier.fillMaxWidth()
+                    )
+                    if (pdfPasswordError.isNotBlank()) Text(
+                        pdfPasswordError, color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = pdfPasswordInput.isNotEmpty(), onClick = {
+                    val submitted = pdfPasswordInput
+                    pdfPasswordInput = ""
+                    loadStatement(pending, submitted)
+                }) { Text("Desbloquear") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    pdfPasswordUri = null
+                    pdfPasswordInput = ""
+                    pdfPasswordError = ""
+                }) { Text("Cancelar") }
+            }
+        )
     }
     if (csvMessage.isNotBlank()) {
         val asOf = parseDate(csvCutoff)
