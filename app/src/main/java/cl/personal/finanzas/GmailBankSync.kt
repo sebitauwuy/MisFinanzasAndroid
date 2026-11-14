@@ -60,7 +60,9 @@ object GmailBankSync {
         val saved = email(context)
         if (saved.isNotBlank() && !switchAccount) {
             builder.setAccount(Account(saved, "com.google"))
-        } else {
+        } else if (switchAccount) {
+            // Solo forzar el selector cuando el usuario pide cambiar de cuenta.
+            // Google elige la pantalla necesaria en la primera autorización.
             builder.setPrompt(AuthorizationRequest.Prompt.SELECT_ACCOUNT)
         }
         return builder.build()
