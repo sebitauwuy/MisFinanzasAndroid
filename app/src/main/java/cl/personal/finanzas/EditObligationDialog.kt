@@ -88,7 +88,7 @@ fun EditObligationDialog(
                     amountClp = amountValue!!,
                     dueDate = dueDate,
                     installments = total!!,
-                    paid = if (isInstallment) original.paidCount >= total else original.paid
+                    paid = if (isInstallment) original.paidCount >= total!! else original.paid
                 ))
             }) { Text(if (saving) "Guardando…" else "Guardar cambios") }
         },
