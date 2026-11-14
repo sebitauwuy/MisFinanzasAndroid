@@ -142,7 +142,7 @@ fun PlannedExpensesScreen(
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Inicio") }
-            Text("Gastos previstos", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Gastos programados", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
