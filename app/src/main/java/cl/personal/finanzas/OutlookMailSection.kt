@@ -35,6 +35,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
     var prompt by remember { mutableStateOf<OutlookDeviceCode?>(null) }
     var overrideCandidate by remember { mutableStateOf<MailCandidate?>(null) }
     var confirmTransfer by remember { mutableStateOf<MailCandidate?>(null) }
+    var restoreCandidate by remember { mutableStateOf<MailCandidate?>(null) }
     val clp = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CL")) }
 
     fun approve(candidate: MailCandidate, allowDuplicate: Boolean) {
@@ -76,6 +77,34 @@ fun OutlookMailSection(db: FinanceDatabase) {
                 message = "No se pudo registrar: ${e.message}"
             }
         }
+    }
+
+    if (restoreCandidate != null) {
+        val candidate = restoreCandidate!!
+        AlertDialog(
+            onDismissRequest = { restoreCandidate = null },
+            title = { Text("Volver a revisar correo") },
+            text = { Text("Este aviso ya se había importado. Si borraste el movimiento, puedes devolverlo a pendientes. Comprueba primero que no exista otro registro del mismo monto y fecha para evitar duplicados. No se modificará ningún saldo hasta que lo apruebes.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    restoreCandidate = null
+                    scope.launch {
+                        try {
+                            db.withTransaction {
+                                val current = dao.getMailCandidate(candidate.sourceId)
+                                if (current?.status == "IMPORTADO") {
+                                    dao.markMailCandidate(candidate.sourceId, "PENDIENTE")
+                                }
+                            }
+                            message = "Correo devuelto a Para revisar. Verifica la cuenta y el monto antes de registrarlo."
+                        } catch (e: Exception) {
+                            message = "No se pudo recuperar el aviso: ${e.message}"
+                        }
+                    }
+                }) { Text("Volver a revisar") }
+            },
+            dismissButton = { TextButton(onClick = { restoreCandidate = null }) { Text("Cancelar") } }
+        )
     }
 
     if (prompt != null) {
@@ -247,5 +276,15 @@ fun OutlookMailSection(db: FinanceDatabase) {
         }
     }
     val processed = mailItems.count { it.status == "IMPORTADO" }
-    if (processed > 0) Text("Importados desde el correo: $processed", style = MaterialTheme.typography.labelMedium)
+    if (processed > 0) {
+        Text("Importados desde el correo: $processed", style = MaterialTheme.typography.labelMedium)
+        val imported = mailItems.filter { it.status == "IMPORTADO" }
+        imported.take(20).forEach { candidate ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("${candidate.operationDate} · ${candidate.description.take(42)} · ${clp.format(candidate.amountClp)}",
+                    modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { restoreCandidate = candidate }) { Text("Revisar otra vez") }
+            }
+        }
+    }
 }
