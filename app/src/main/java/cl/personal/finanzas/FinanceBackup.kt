@@ -17,7 +17,7 @@ object FinanceBackup {
         val root = JSONObject().put("format", "mis-finanzas").put("version", 5)
         val ms = JSONArray()
         movements.forEach { m ->
-            ms.put(JSONObject().put("account",m.account).put("description",m.description)
+            ms.put(JSONObject().put("id",m.id).put("account",m.account).put("description",m.description)
                 .put("amountClp",m.amountClp).put("date",m.date).put("category",m.category))
         }
         val os = JSONArray()
@@ -66,8 +66,15 @@ object FinanceBackup {
         require(ms.length() <= 10000 && os.length() <= 10000) { "Demasiados registros" }
         val movements = (0 until ms.length()).map { i ->
             val m=ms.getJSONObject(i)
-            Movement(account=m.getString("account"),description=m.getString("description"),
+            Movement(id=if (root.optInt("version") >= 5) m.optLong("id", 0L) else 0L,
+                account=m.getString("account"),description=m.getString("description"),
                 amountClp=m.getLong("amountClp"),date=m.getString("date"),category=m.getString("category"))
+        }
+        if (root.optInt("version") >= 5) {
+            require(movements.all { it.id > 0L } &&
+                movements.map { it.id }.distinct().size == movements.size) {
+                "Identificadores de movimientos inválidos en el respaldo"
+            }
         }
         val obligations = (0 until os.length()).map { i ->
             val o=os.getJSONObject(i)
