@@ -14,7 +14,7 @@ object FinanceBackup {
         val movements = db.financeDao().allMovements()
         val obligations = db.financeDao().allObligations()
         val mail = db.financeDao().allMailCandidates()
-        val root = JSONObject().put("format", "mis-finanzas").put("version", 8)
+        val root = JSONObject().put("format", "mis-finanzas").put("version", 9)
         val ms = JSONArray()
         movements.forEach { m ->
             ms.put(JSONObject().put("id",m.id).put("account",m.account).put("description",m.description)
@@ -49,6 +49,7 @@ object FinanceBackup {
         }
         root.put("mailCandidates", emails)
         root.put("creditLimits", CreditLimitStore.export(context))
+        root.put("categoryBudgets", CategoryBudgetStore.export(context))
         root.put("reminderSettings", FinanceReminderSettings.export(context))
         val dashboardPrefs = context.getSharedPreferences("dashboard_account_cards", Context.MODE_PRIVATE)
         val dashboardStyle = JSONObject()
@@ -81,7 +82,7 @@ object FinanceBackup {
         val raw = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         require(raw.length < 10_000_000) { "Respaldo demasiado grande" }
         val root = JSONObject(raw)
-        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..8) { "Formato de respaldo no reconocido" }
+        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..9) { "Formato de respaldo no reconocido" }
         val ms = root.getJSONArray("movements")
         val os = root.getJSONArray("obligations")
         require(ms.length() <= 10000 && os.length() <= 10000) { "Demasiados registros" }
@@ -132,6 +133,11 @@ object FinanceBackup {
                 }
             }
         }
+        val budgetArray = root.optJSONArray("categoryBudgets")
+        if (root.optInt("version") >= 9) require(budgetArray != null) {
+            "Faltan presupuestos por categoría en el respaldo"
+        }
+        if (budgetArray != null) CategoryBudgetStore.validateJson(budgetArray)
         val opening = root.optJSONObject("openingBalances")
         val billing = root.optJSONObject("billingCycles")
         val savedVisibility = if (root.optInt("version") >= 3) {
@@ -215,6 +221,7 @@ object FinanceBackup {
             cyclesEditor.commit()
         }
         if (creditLimits != null) CreditLimitStore.restore(context, creditLimits)
+        if (budgetArray != null) require(CategoryBudgetStore.restore(context, budgetArray)) { "No se pudieron recuperar los presupuestos" }
         if (reminders != null) FinanceReminderSettings.restore(context, reminders)
         if (dashboardStyle != null) {
             val editor = context.getSharedPreferences("dashboard_account_cards", Context.MODE_PRIVATE).edit().clear()
