@@ -80,6 +80,7 @@ import java.time.temporal.TemporalAdjusters
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.abs
 import org.json.JSONArray
 import dev.chrisbanes.haze.HazeInput
 import dev.chrisbanes.haze.blur.hazeBlur
@@ -1113,6 +1114,13 @@ private fun hexFinanceColor(value: String): Color? = try {
         Color(android.graphics.Color.parseColor("#$hex")) else null
 } catch (_: IllegalArgumentException) { null }
 
+private data class DashboardUpcoming(
+    val date: LocalDate,
+    val title: String,
+    val amountClp: Long,
+    val destinationTab: Int
+)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Dashboard(
@@ -1144,9 +1152,16 @@ fun Dashboard(
     val today = LocalDate.now()
     val month = YearMonth.from(today)
     val cashAccounts = visibleAccounts.filter { AccountCatalog.isCash(it) }
-    val movementsToDate = movements.filter { parseDate(it.date)?.isAfter(today) != true }
-    val accountBalances = cashAccounts.associateWith { account ->
-        (openingBalances[account] ?: 0L) + movementsToDate.filter { it.account == account }.sumOf { it.amountClp }
+    val movementsToDate = remember(movements, today) {
+        movements.filter { parseDate(it.date)?.isAfter(today) != true }
+    }
+    val movementsByAccount = remember(movementsToDate) {
+        movementsToDate.groupBy { it.account }.mapValues { (_, items) -> items.sumOf { it.amountClp } }
+    }
+    val accountBalances = remember(cashAccounts, openingBalances, movementsByAccount) {
+        cashAccounts.associateWith { account ->
+            (openingBalances[account] ?: 0L) + (movementsByAccount[account] ?: 0L)
+        }
     }
     val balance = accountBalances.values.sum()
     val automaticBankOrder = cashAccounts.sortedWith(
@@ -1346,6 +1361,28 @@ fun Dashboard(
         val ym = month.plusMonths(offset.toLong())
         ym to dueItems(ym).sumOf { it.first.amountClp }
     }
+    // Una vista de los vencimientos inmediatos, conservando separadas las cuotas
+    // y los gastos programados; no se modifican deudas ni movimientos.
+    val nextDueRows = remember(plannedExpenses, obligations, today) {
+        val planned = plannedExpenses.filter { it.active }.mapNotNull { plan ->
+            parseDate(plan.nextDueDate)?.let { due ->
+                DashboardUpcoming(due, plan.icon + " " + plan.title, plan.estimatedAmountClp, 5)
+            }
+        }
+        val installments = obligations.filter { it.kind == "Pago" && !it.paid }.flatMap { o ->
+            val first = parseDate(o.dueDate) ?: return@flatMap emptyList<DashboardUpcoming>()
+            (o.paidCount until o.installments).map { i ->
+                DashboardUpcoming(first.plusMonths(i.toLong()), "💳 " + o.title, o.amountClp, 2)
+            }
+        }
+        (planned + installments).filter { !it.date.isAfter(today.plusDays(35)) }
+            .sortedWith(compareBy<DashboardUpcoming> { it.date }.thenBy { it.title })
+            .take(3)
+    }
+    val balanceAnim = remember { Animatable(0f) }
+    LaunchedEffect(balance) {
+        balanceAnim.animateTo(balance.toFloat(), animationSpec = tween(durationMillis = 750))
+    }
     var editingAccount by remember { mutableStateOf<String?>(null) }
     var openingInput by remember { mutableStateOf("") }
     if (editingAccount != null) {
@@ -1373,29 +1410,87 @@ fun Dashboard(
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = totalColor), shape = RoundedCornerShape(26.dp)) {
-                Column(Modifier.fillMaxWidth().padding(22.dp)) {
-                    Text("DISPONIBLE REGISTRADO", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(8.dp))
-                    AnimatedContent(
-                        targetState = balance,
-                        transitionSpec = {
-                            fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) togetherWith
-                                fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
-                        },
-                        label = "disponible_registrado"
-                    ) { displayedBalance ->
-                        Text(money(displayedBalance), color = Color.White,
-                            style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text("${cashAccounts.size} cuenta(s) activas · Saldo local, no bancario en tiempo real", color = Color(0xFFCAD8EE), style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = { themeDialog = true }, colors = ButtonDefaults.textButtonColors(contentColor = Color.White)) { Text("🎨 Personalizar color") }
-                    Spacer(Modifier.height(14.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { onNavigate(1) }, colors = ButtonDefaults.buttonColors(containerColor = FinancePalette.Cyan, contentColor = FinancePalette.NavyDeep)) { Text("+ Movimiento") }
-                        OutlinedButton(onClick = { onNavigate(2) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("Ver pagos") }
+            val foreground = if (totalColor.luminance() > 0.44f) FinancePalette.NavyDeep else Color.White
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                shape = RoundedCornerShape(26.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+            ) {
+                Box(
+                    Modifier.fillMaxWidth().background(
+                        Brush.linearGradient(
+                            listOf(
+                                lerp(totalColor, Color.White, 0.06f),
+                                lerp(totalColor, FinancePalette.NavyDeep, 0.27f)
+                            )
+                        )
+                    )
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("DISPONIBLE REGISTRADO",
+                                color = foreground.copy(alpha = 0.88f),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f))
+                            IconButton(
+                                onClick = { themeDialog = true },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(Icons.Filled.Palette, "Personalizar color",
+                                    tint = foreground, modifier = Modifier.size(19.dp))
+                            }
+                        }
+                        val displayed = if (abs(balanceAnim.value.toDouble() - balance.toDouble()) < 1.0)
+                            balance else balanceAnim.value.toLong()
+                        Text(money(displayed), color = foreground,
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.Bold)
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(
+                                color = foreground.copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(50)
+                            ) {
+                                Text("Saldo local", Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    color = foreground, style = MaterialTheme.typography.labelSmall)
+                            }
+                            Text("${cashAccounts.size} cuentas activas",
+                                color = foreground.copy(alpha = 0.88f),
+                                style = MaterialTheme.typography.labelSmall)
+                        }
+                        HorizontalDivider(color = foreground.copy(alpha = 0.17f))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Ingresos del mes", color = foreground.copy(alpha = 0.8f),
+                                    style = MaterialTheme.typography.labelSmall)
+                                Text(money(income), color = foreground, fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.bodyMedium)
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text("Gastos del mes", color = foreground.copy(alpha = 0.8f),
+                                    style = MaterialTheme.typography.labelSmall)
+                                Text(money(expenses), color = foreground, fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { onNavigate(1) },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = FinancePalette.Cyan,
+                                    contentColor = FinancePalette.NavyDeep)) {
+                                Text("+ Movimiento", maxLines = 1)
+                            }
+                            OutlinedButton(onClick = { onNavigate(2) },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = foreground)) {
+                                Text("Ver pagos", maxLines = 1)
+                            }
+                        }
                     }
                 }
             }
