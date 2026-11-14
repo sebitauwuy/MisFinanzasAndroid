@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -154,6 +155,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsumed: () -> Unit = {}) {
     val dao = db.financeDao()
@@ -509,8 +511,11 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                 onCancel = { managingAccounts = false }
             )
         } else {
+            val refreshSnackbar = remember { SnackbarHostState() }
+            var refreshingOutlook by remember { mutableStateOf(false) }
             Scaffold(
                 containerColor = FinancePalette.Surface,
+                snackbarHost = { SnackbarHost(hostState = refreshSnackbar) },
                 topBar = {
                     Surface(modifier = Modifier.fillMaxWidth().background(FinancePalette.Navy).statusBarsPadding(),
                         color = FinancePalette.Navy) {
@@ -555,7 +560,61 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                     }
                 }
             ) { pad ->
-                Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp).then(if (tab == 4) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
+                PullToRefreshBox(
+                    isRefreshing = refreshingOutlook,
+                    modifier = Modifier.fillMaxSize().padding(pad),
+                    onRefresh = {
+                        if (!refreshingOutlook) {
+                            if (!OutlookGraph.isConnected(context)) {
+                                scope.launch {
+                                    val response = refreshSnackbar.showSnackbar(
+                                        message = "Conecta Outlook en Ajustes para buscar avisos bancarios.",
+                                        actionLabel = "Ajustes",
+                                        duration = SnackbarDuration.Long
+                                    )
+                                    if (response == SnackbarResult.ActionPerformed) tab = 4
+                                }
+                            } else {
+                                refreshingOutlook = true
+                                scope.launch {
+                                    try {
+                                        val result = OutlookGraph.sync(context, dao)
+                                        val pendingCount = dao.allMailCandidates().count {
+                                            it.status == "PENDIENTE" || it.status == "POSIBLE_DUPLICADO"
+                                        }
+                                        val summary = when {
+                                            result.queued > 0 ->
+                                                "${result.queued} aviso(s) nuevo(s) de Outlook. ${pendingCount} pendiente(s) por revisar."
+                                            pendingCount > 0 ->
+                                                "Sin avisos nuevos. Tienes ${pendingCount} pendiente(s) por revisar."
+                                            else ->
+                                                "Outlook actualizado: sin avisos nuevos (${result.scanned} correos revisados)."
+                                        }
+                                        refreshingOutlook = false
+                                        val response = refreshSnackbar.showSnackbar(
+                                            message = summary,
+                                            actionLabel = if (pendingCount > 0) "Ver avisos" else null,
+                                            duration = SnackbarDuration.Long
+                                        )
+                                        if (response == SnackbarResult.ActionPerformed) tab = 4
+                                    } catch (e: Exception) {
+                                        refreshingOutlook = false
+                                        val detail = e.message?.replace(Regex("""[\r\n]+"""), " ")
+                                            ?.take(110) ?: "Comprueba tu conexión."
+                                        refreshSnackbar.showSnackbar(
+                                            message = "No se pudo buscar avisos de Outlook: $detail",
+                                            duration = SnackbarDuration.Long
+                                        )
+                                    } finally {
+                                        refreshingOutlook = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ) {
+                    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)
+                        .then(if (tab == 4) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
                     when (tab) {
                         0 -> Dashboard(movements, obligations, openingBalances, visibleAccounts, onNavigate = { tab = it }) { account, amount ->
                             balancePrefs.edit().putLong(account, amount).apply()
@@ -695,6 +754,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                             }
                         }
                     }
+                }
                 }
             }
         }
