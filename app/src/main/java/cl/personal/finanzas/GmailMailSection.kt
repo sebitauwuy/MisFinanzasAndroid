@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.common.api.ApiException
 import kotlinx.coroutines.launch
 
 /** Gmail (una cuenta) y Outlook comparten la bandeja de revisión de MailCandidate. */
@@ -60,15 +61,31 @@ fun GmailMailSection(db: FinanceDatabase) {
     ) { response ->
         try {
             val data: Intent? = response.data
-            if (response.resultCode != Activity.RESULT_OK || data == null) {
-                message = "Autorización de Gmail cancelada."
+            if (data == null) {
+                // Una vuelta sin intent NO demuestra que el usuario haya cancelado.
+                // Puede ocurrir con cliente OAuth/certificado no configurado.
                 busy = false
+                message = if (response.resultCode == Activity.RESULT_CANCELED)
+                    "Google regresó sin conceder el acceso a Gmail. " +
+                        "Si seleccionaste tu correo, revisa el cliente OAuth Android " +
+                        "(paquete, SHA-1 de la APK firmada y usuario de prueba)."
+                else
+                    "Google no devolvió autorización (resultado ${response.resultCode}). " +
+                        "Revisa la configuración OAuth y vuelve a intentar."
             } else {
+                // Google documenta extraer el resultado desde el Intent.
+                // Si falló, getAuthorizationResultFromIntent entrega ApiException
+                // con código de estado útil para el diagnóstico.
                 consume(client.getAuthorizationResultFromIntent(data))
             }
+        } catch (e: ApiException) {
+            busy = false
+            message = "Google rechazó la autorización (código ${e.statusCode}). " +
+                "Comprueba OAuth Android, huella SHA-1, Gmail API y usuarios de prueba."
         } catch (e: Exception) {
             busy = false
-            message = "No se pudo autorizar Gmail: ${e.message}"
+            message = "No se pudo completar Gmail: " +
+                (e.message?.take(120) ?: "error no identificado")
         }
     }
 
@@ -88,10 +105,14 @@ fun GmailMailSection(db: FinanceDatabase) {
                     message = "Gmail: ${e.message}"
                 }
             }
-            .addOnFailureListener {
+            .addOnFailureListener { error ->
                 busy = false
-                message = "No se pudo conectar Gmail. Comprueba la configuración " +
-                    "OAuth Android del proyecto Google Cloud y Google Play Services."
+                message = if (error is ApiException)
+                    "Google no pudo iniciar la autorización (código ${error.statusCode}). " +
+                        "Revisa la firma de la APK y el cliente OAuth en Google Cloud."
+                else
+                    "Google no pudo iniciar la autorización: " +
+                        (error.message?.take(120) ?: "revisa Google Play Services y la conexión.")
             }
     }
 
@@ -127,9 +148,11 @@ fun GmailMailSection(db: FinanceDatabase) {
         }
         Text(
             "Solo se solicita gmail.readonly. No se almacenan contraseñas, tokens " +
-                "ni el contenido completo de los correos. Google puede pedir que " +
-                "autorices el acceso nuevamente. Requiere OAuth Android " +
-                "(paquete y SHA-1 de la firma) y Gmail API en Google Cloud.",
+                "ni el contenido completo de los correos. Para autorizar: habilita Gmail API, " +
+                "crea un cliente OAuth Android con el paquete cl.personal.finanzas y el SHA-1 " +
+                "de la APK firmada, configura el permiso gmail.readonly y añade tu Gmail " +
+                "como usuario de prueba en Google Cloud. Elegir una cuenta no basta " +
+                "si Google aún no concede el permiso.",
             style = MaterialTheme.typography.bodySmall
         )
         if (message.isNotBlank())
