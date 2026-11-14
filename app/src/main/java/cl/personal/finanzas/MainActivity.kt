@@ -2,6 +2,7 @@ package cl.personal.finanzas
 
 import android.app.KeyguardManager
 import android.os.Bundle
+import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -128,18 +129,29 @@ private fun money(value: Long) = clp.format(value)
 private fun parseDate(value: String): LocalDate? = try { LocalDate.parse(value) } catch (_: Exception) { null }
 
 class MainActivity : ComponentActivity() {
+    private val sharedText = androidx.compose.runtime.mutableStateOf("")
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            sharedText.value = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         val db = Room.databaseBuilder(applicationContext, FinanceDatabase::class.java, "finanzas.db")
             .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
-        setContent { FinanceApp(db) }
+        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            sharedText.value = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+        }
+        setContent { FinanceApp(db, sharedText.value) { sharedText.value = "" } }
     }
 }
 
 @Composable
-fun FinanceApp(db: FinanceDatabase) {
+fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsumed: () -> Unit = {}) {
     val dao = db.financeDao()
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("security", 0) }
@@ -165,6 +177,10 @@ fun FinanceApp(db: FinanceDatabase) {
     val movements = loadedMovements.orEmpty()
     val obligations = loadedObligations.orEmpty()
     var tab by remember { mutableStateOf(0) }
+    var showEmailImporter by remember { mutableStateOf(false) }
+    LaunchedEffect(sharedText) {
+        if (sharedText.isNotBlank()) { tab = 1; showEmailImporter = true }
+    }
     val balancePrefs = remember { context.getSharedPreferences("opening_balances", 0) }
     var openingBalances by remember { mutableStateOf(accounts.associateWith { balancePrefs.getLong(it, 0L) }) }
     var accountConfigured by remember { mutableStateOf(AccountCatalog.isConfigured(context)) }
@@ -541,7 +557,17 @@ fun FinanceApp(db: FinanceDatabase) {
                             balancePrefs.edit().putLong(account, amount).apply()
                             openingBalances = openingBalances + (account to amount)
                         }
-                        1 -> MovementScreen(movements, dao, scope, visibleAccounts)
+                        1 -> if (showEmailImporter) {
+                            Column(Modifier.fillMaxSize()) {
+                                TextButton(onClick = { showEmailImporter = false }) { Text("Volver a movimientos") }
+                                EmailImportSection(sharedText, onSharedTextConsumed, movements, visibleAccounts, dao)
+                            }
+                        } else {
+                            Column(Modifier.fillMaxSize()) {
+                                OutlinedButton(onClick = { showEmailImporter = true }) { Text("Importar aviso desde Outlook / Hotmail") }
+                                MovementScreen(movements, dao, scope, visibleAccounts)
+                            }
+                        }
                         2 -> ObligationScreen(obligations.filter { it.kind == "Pago" }, "Pago", dao, scope, visibleAccounts)
                         3 -> ObligationScreen(obligations.filter { it.kind == "Reembolso" }, "Reembolso", dao, scope, visibleAccounts)
                         else -> {
