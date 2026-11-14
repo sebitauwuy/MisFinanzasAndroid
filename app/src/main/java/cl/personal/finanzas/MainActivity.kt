@@ -868,8 +868,10 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                         }
                     }
                 ) {
-                    Column(Modifier.fillMaxSize().hazeSource(state = hazeState).padding(horizontal = 16.dp)
-                        .then(if (tab == 4) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
+                    // El contenedor compartido NUNCA debe hacerse scrollable:
+                    // AnimatedContent mantiene visible el Dashboard (LazyColumn) durante
+                    // la salida, y un verticalScroll padre produciría nested scroll infinito.
+                    Column(Modifier.fillMaxSize().hazeSource(state = hazeState).padding(horizontal = 16.dp)) {
                     AnimatedContent(
                         targetState = tab,
                         transitionSpec = {
@@ -907,6 +909,9 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             onPaymentRequestConsumed = { requestedPlannedPaymentId = null }
                         )
                         else -> {
+                            // El scroll pertenece sólo a la pantalla de Ajustes,
+                            // no al padre de la transición entre pestañas.
+                            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                             Spacer(Modifier.height(16.dp))
                             FinanceSettingsGroup("Mis cuentas", "Selecciona qué cuentas quieres ver", expandedAtStart = true) {
                             Text(visibleAccounts.joinToString(" · ") { AccountCatalog.displayName(it) }, style = MaterialTheme.typography.bodySmall)
@@ -1078,6 +1083,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }) { Text("Restaurar respaldo") }
                             }
                             Spacer(Modifier.height(112.dp))
+                            } // fin del Column scrollable de Ajustes
                         }
                     }
                     }
