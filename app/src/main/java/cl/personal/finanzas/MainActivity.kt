@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -578,14 +579,21 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                 },
                 bottomBar = {
                     NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
-                        val labels = listOf("Inicio", "Movs.", "Cuotas", "Cobros", "Ajustes")
-                        val icons = listOf(Icons.Filled.Home, Icons.Filled.AddCircle,
-                            Icons.Filled.CreditCard, Icons.Filled.Payments, Icons.Filled.Settings)
-                        labels.forEachIndexed { i, label ->
+                        // El orden visual no altera los IDs de las pantallas existentes.
+                        // Gastos programados tiene navegación propia (ID 5), sin mezclarse con Cuotas (ID 2).
+                        val sections = listOf(
+                            Triple(0, "Inicio", Icons.Filled.Home),
+                            Triple(1, "Movs.", Icons.Filled.AddCircle),
+                            Triple(2, "Cuotas", Icons.Filled.CreditCard),
+                            Triple(5, "Gastos", Icons.Filled.Event),
+                            Triple(3, "Cobros", Icons.Filled.Payments),
+                            Triple(4, "Ajustes", Icons.Filled.Settings)
+                        )
+                        sections.forEach { (sectionId, label, sectionIcon) ->
                             NavigationBarItem(
-                                selected = tab == i,
-                                onClick = { tab = i },
-                                icon = { Icon(icons[i], contentDescription = label) },
+                                selected = tab == sectionId,
+                                onClick = { tab = sectionId },
+                                icon = { Icon(sectionIcon, contentDescription = label) },
                                 label = { Text(label, maxLines = 1) },
                                 alwaysShowLabel = true,
                                 colors = NavigationBarItemDefaults.colors(
