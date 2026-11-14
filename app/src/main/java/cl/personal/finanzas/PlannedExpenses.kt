@@ -57,7 +57,6 @@ object PlannedExpenseRules {
             plan.frequency in setOf("SEMANAL", "MENSUAL") &&
             date != null && plan.anchorDay in 1..31 &&
             plan.defaultAccount in AccountCatalog.names &&
-            AccountCatalog.isCash(plan.defaultAccount) &&
             plan.lastPaidAmountClp >= 0 && plan.lastPaymentMovementId >= 0
     }
 
@@ -90,7 +89,7 @@ fun PlannedExpensesScreen(
     val scope = rememberCoroutineScope()
     val today = LocalDate.now()
     val clp = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CL")) }
-    val cashAccounts = visibleAccounts.filter(AccountCatalog::isCash)
+    val paymentAccounts = visibleAccounts
 
     var showEditor by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<PlannedExpense?>(null) }
@@ -100,7 +99,7 @@ fun PlannedExpensesScreen(
     var frequency by remember { mutableStateOf("MENSUAL") }
     var variable by remember { mutableStateOf(true) }
     var nextDue by remember { mutableStateOf(today.toString()) }
-    var defaultAccount by remember { mutableStateOf(cashAccounts.firstOrNull() ?: "Banco de Chile") }
+    var defaultAccount by remember { mutableStateOf(paymentAccounts.firstOrNull() ?: "Banco de Chile") }
     var paymentPlan by remember { mutableStateOf<PlannedExpense?>(null) }
     var paymentAmount by remember { mutableStateOf("") }
     var paymentAccount by remember { mutableStateOf("") }
@@ -119,15 +118,15 @@ fun PlannedExpensesScreen(
         frequency = plan?.frequency ?: "MENSUAL"
         variable = plan?.isVariable ?: true
         nextDue = plan?.nextDueDate ?: today.toString()
-        defaultAccount = plan?.defaultAccount?.takeIf { it in cashAccounts }
-            ?: cashAccounts.firstOrNull() ?: "Banco de Chile"
+        defaultAccount = plan?.defaultAccount?.takeIf { it in paymentAccounts }
+            ?: paymentAccounts.firstOrNull() ?: "Banco de Chile"
         showEditor = true
     }
 
     fun startPayment(plan: PlannedExpense) {
         paymentPlan = plan
         paymentAmount = plan.estimatedAmountClp.toString()
-        paymentAccount = plan.defaultAccount.takeIf { it in cashAccounts } ?: cashAccounts.firstOrNull().orEmpty()
+        paymentAccount = plan.defaultAccount.takeIf { it in paymentAccounts } ?: paymentAccounts.firstOrNull().orEmpty()
         paymentDate = today.toString()
         paymentExisting = false
         paymentConfirmDuplicate = false
@@ -271,13 +270,13 @@ fun PlannedExpensesScreen(
                     }, modifier = Modifier.fillMaxWidth()) {
                         Text("Próximo vencimiento: $nextDue")
                     }
-                    if (cashAccounts.isEmpty()) {
-                        Text("Activa una cuenta con saldo disponible desde Ajustes para poder guardar este gasto.",
+                    if (paymentAccounts.isEmpty()) {
+                        Text("Activa una cuenta o tarjeta desde Ajustes para poder guardar este gasto.",
                             color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
-                    if (cashAccounts.isNotEmpty()) {
-                        Text("Cuenta habitual de pago", style = MaterialTheme.typography.labelLarge)
-                        AccountPicker(defaultAccount, { defaultAccount = it }, cashAccounts)
+                    if (paymentAccounts.isNotEmpty()) {
+                        Text("Cuenta o tarjeta habitual de pago", style = MaterialTheme.typography.labelLarge)
+                        AccountPicker(defaultAccount, { defaultAccount = it }, paymentAccounts)
                     }
                     Text("Los valores estimados no cambian tus saldos hasta marcar el gasto como pagado.",
                         style = MaterialTheme.typography.bodySmall)
@@ -291,7 +290,7 @@ fun PlannedExpensesScreen(
             confirmButton = {
                 TextButton(
                     enabled = !working && title.isNotBlank() && amount != null &&
-                        amount in 1L..999_999_999_999L && date != null && defaultAccount in cashAccounts,
+                        amount in 1L..999_999_999_999L && date != null && defaultAccount in paymentAccounts,
                     onClick = {
                         val old = editing
                         val plan = PlannedExpense(
@@ -349,9 +348,9 @@ fun PlannedExpensesScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth())
                     else Text("Se registrará el monto fijo: ${clp.format(plan.estimatedAmountClp)}")
-                    Text("Cuenta desde la que pagaste", style = MaterialTheme.typography.labelLarge)
-                    if (cashAccounts.isNotEmpty()) AccountPicker(paymentAccount,
-                        { paymentAccount = it; paymentConfirmDuplicate = false }, cashAccounts)
+                    Text("Cuenta o tarjeta utilizada", style = MaterialTheme.typography.labelLarge)
+                    if (paymentAccounts.isNotEmpty()) AccountPicker(paymentAccount,
+                        { paymentAccount = it; paymentConfirmDuplicate = false }, paymentAccounts)
                     OutlinedButton(onClick = {
                         val date = paidDate ?: today
                         DatePickerDialog(context, { _, y, m, d ->
@@ -376,7 +375,7 @@ fun PlannedExpensesScreen(
             },
             confirmButton = {
                 TextButton(enabled = !working && actual != null && actual in 1L..999_999_999_999L &&
-                    paidDate != null && !paidDate.isAfter(today) && paymentAccount in cashAccounts, onClick = {
+                    paidDate != null && !paidDate.isAfter(today) && paymentAccount in paymentAccounts, onClick = {
                     if (possibleDuplicates && !paymentConfirmDuplicate && !paymentExisting) {
                         paymentConfirmDuplicate = true
                         return@TextButton
