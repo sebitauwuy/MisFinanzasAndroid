@@ -36,6 +36,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.Locale
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /** Dos configuraciones independientes: reembolsos por cobrar y pagos/cuotas pendientes. */
@@ -56,6 +57,37 @@ object FinanceReminderSettings {
             daysBefore = prefs.getInt("${prefix}_days", 1).coerceIn(0, 30),
             time = time
         )
+    }
+
+    fun export(context: Context): JSONObject {
+        val json = JSONObject()
+        listOf("Reembolso", "Pago").forEach { kind ->
+            val config = load(context, kind)
+            json.put(kind, JSONObject().put("enabled", config.enabled)
+                .put("daysBefore", config.daysBefore).put("time", config.time.toString()))
+        }
+        return json
+    }
+
+    fun validate(json: JSONObject) {
+        listOf("Reembolso", "Pago").forEach { kind ->
+            val value = json.getJSONObject(kind)
+            val days = value.getInt("daysBefore")
+            val time = LocalTime.parse(value.getString("time"))
+            require(days in 0..30 && time.hour in 0..23) { "Recordatorio inválido en el respaldo" }
+            value.getBoolean("enabled")
+        }
+    }
+
+    fun restore(context: Context, json: JSONObject) {
+        validate(json)
+        listOf("Reembolso", "Pago").forEach { kind ->
+            val value = json.getJSONObject(kind)
+            require(save(context, kind, FinanceReminderConfig(value.getBoolean("enabled"),
+                value.getInt("daysBefore"), LocalTime.parse(value.getString("time"))))) {
+                "No se pudo recuperar el recordatorio de $kind"
+            }
+        }
     }
 
     fun save(context: Context, kind: String, config: FinanceReminderConfig): Boolean {
