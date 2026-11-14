@@ -6,7 +6,7 @@ plugins {
 }
 android {
     namespace = "cl.personal.finanzas"
-    compileSdk = 35
+    compileSdk = 37
     defaultConfig {
         applicationId = "cl.personal.finanzas"
         minSdk = 26
