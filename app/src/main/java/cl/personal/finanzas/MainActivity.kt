@@ -17,9 +17,23 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -635,7 +649,21 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                     }
                 },
                 bottomBar = {
-                    NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
+                    // Apariencia de vidrio esmerilado ligera, sin capturas de GPU ni
+                    // dependencias de blur incompatibles con Compose de esta versión.
+                    val glassShape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
+                    NavigationBar(
+                        modifier = Modifier
+                            .shadow(9.dp, glassShape)
+                            .clip(glassShape)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color(0xF9FFFFFF), Color(0xEEF0F7FD))
+                                )
+                            ),
+                        containerColor = Color.Transparent,
+                        tonalElevation = 0.dp
+                    ) {
                         // El orden visual no altera los IDs de las pantallas existentes.
                         // Gastos programados tiene navegación propia (ID 5), sin mezclarse con Cuotas (ID 2).
                         val sections = listOf(
@@ -647,10 +675,24 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             Triple(4, "Ajustes", Icons.Filled.Settings)
                         )
                         sections.forEach { (sectionId, label, sectionIcon) ->
+                            val iconScale by animateFloatAsState(
+                                targetValue = if (tab == sectionId) 1.12f else 1f,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                ),
+                                label = "navbar_icon_$sectionId"
+                            )
                             NavigationBarItem(
                                 selected = tab == sectionId,
                                 onClick = { tab = sectionId },
-                                icon = { Icon(sectionIcon, contentDescription = label) },
+                                icon = {
+                                    Icon(sectionIcon, contentDescription = label,
+                                        modifier = Modifier.graphicsLayer {
+                                            scaleX = iconScale
+                                            scaleY = iconScale
+                                        })
+                                },
                                 label = { Text(label, maxLines = 1) },
                                 alwaysShowLabel = true,
                                 colors = NavigationBarItemDefaults.colors(
@@ -1206,7 +1248,17 @@ fun Dashboard(
                 Column(Modifier.fillMaxWidth().padding(22.dp)) {
                     Text("DISPONIBLE REGISTRADO", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
-                    Text(money(balance), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    AnimatedContent(
+                        targetState = balance,
+                        transitionSpec = {
+                            fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) togetherWith
+                                fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+                        },
+                        label = "disponible_registrado"
+                    ) { displayedBalance ->
+                        Text(money(displayedBalance), color = Color.White,
+                            style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text("${cashAccounts.size} cuenta(s) activas · Saldo local, no bancario en tiempo real", color = Color(0xFFCAD8EE), style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))
@@ -1228,9 +1280,25 @@ fun Dashboard(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     pair.forEach { account ->
                         val amount = accountBalances[account] ?: 0L
+                        val cardInteractions = remember(account) { MutableInteractionSource() }
+                        val pressed by cardInteractions.collectIsPressedAsState()
+                        val pressedScale by animateFloatAsState(
+                            targetValue = if (pressed) 0.965f else 1f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ),
+                            label = "bank_card_press_$account"
+                        )
                         Card(
                             modifier = Modifier.weight(1f).padding(bottom = 10.dp)
+                                .graphicsLayer {
+                                    scaleX = pressedScale
+                                    scaleY = pressedScale
+                                }
                                 .combinedClickable(
+                                    interactionSource = cardInteractions,
+                                    indication = LocalIndication.current,
                                     onClick = { bankMenu = account },
                                     onLongClick = { bankMenu = account }
                                 ),
@@ -1505,7 +1573,7 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
             }
             if (isExpanded) {
                 items(weekItems, key = { it.id }) { m ->
-                    Card(Modifier.fillMaxWidth()) {
+                    Card(Modifier.fillMaxWidth().animateItem()) {
                         Row(Modifier.padding(12.dp)) {
                             Column(Modifier.weight(1f)) {
                                 Text(m.description.ifBlank { "(Sin descripción)" }, style = MaterialTheme.typography.titleMedium)
