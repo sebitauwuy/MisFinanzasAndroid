@@ -809,7 +809,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
             ) { pad ->
                 PullToRefreshBox(
                     isRefreshing = refreshingOutlook,
-                    modifier = Modifier.fillMaxSize().padding(pad),
+                    modifier = Modifier.fillMaxSize().padding(top = pad.calculateTopPadding()),
                     onRefresh = {
                         if (!refreshingOutlook) {
                             if (!OutlookGraph.isConnected(context)) {
@@ -1403,7 +1403,7 @@ fun Dashboard(
             dismissButton = { TextButton(onClick = { editingAccount = null }) { Text("Cancelar") } }
         )
     }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(vertical = 18.dp)) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(top = 18.dp, bottom = 112.dp)) {
         item {
             Text("Tu resumen", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("Actualizado con tus registros · ${today.dayOfMonth}/${today.monthValue}/${today.year}",
@@ -1854,7 +1854,7 @@ fun MovementScreen(
         parseDate(movement.date)?.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))?.toString()
             ?: "sin-fecha"
     }.toSortedMap(compareByDescending<String> { parseDate(it) ?: LocalDate.MIN })
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(top = 12.dp, bottom = 112.dp)) {
         item {
             Text("Registrar movimiento", style = MaterialTheme.typography.titleLarge)
             OutlinedTextField(description, { description = it }, label = { Text("Descripción") }, modifier = Modifier.fillMaxWidth())
@@ -2017,7 +2017,7 @@ fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, sco
             }
         )
     }
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(top = 12.dp, bottom = 112.dp)) {
         if (kind == "Pago") {
             item {
                 CreditLimitsSection(movements, availableAccounts)
