@@ -26,6 +26,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
     val mailItems by remember(dao) { dao.mailCandidates() }.collectAsState(initial = emptyList())
     var applicationId by remember { mutableStateOf(OutlookGraph.clientId(context)) }
     var accountSuffix by remember { mutableStateOf(OutlookGraph.accountLast4(context)) }
+    var cutoff by remember { mutableStateOf(OutlookGraph.cutoffDate(context)) }
     var autoSync by remember { mutableStateOf(OutlookGraph.enabled(context)) }
     var connected by remember { mutableStateOf(OutlookGraph.isConnected(context)) }
     var busy by remember { mutableStateOf(false) }
@@ -38,9 +39,14 @@ fun OutlookMailSection(db: FinanceDatabase) {
         scope.launch {
             try {
                 var blocked = false
+                var blockedByCutoff = false
                 db.withTransaction {
                     val fresh = dao.getMailCandidate(candidate.sourceId) ?: return@withTransaction
                     if (fresh.status != "PENDIENTE" && fresh.status != "POSIBLE_DUPLICADO") return@withTransaction
+                    if (!java.time.LocalDate.parse(fresh.operationDate).isAfter(java.time.LocalDate.parse(OutlookGraph.cutoffDate(context)))) {
+                        blockedByCutoff = true
+                        return@withTransaction
+                    }
                     if (!allowDuplicate && ChileBankEmailParser.possibleDuplicate(fresh, dao.allMovements())) {
                         dao.markMailCandidate(fresh.sourceId, "POSIBLE_DUPLICADO")
                         blocked = true
@@ -53,7 +59,9 @@ fun OutlookMailSection(db: FinanceDatabase) {
                     ))
                     dao.markMailCandidate(fresh.sourceId, "IMPORTADO")
                 }
-                if (blocked) {
+                if (blockedByCutoff) {
+                    message = "Ese movimiento es anterior o igual al saldo inicial: no debe sumarse nuevamente."
+                } else if (blocked) {
                     overrideCandidate = candidate
                     message = "Ya existe un monto similar en la cartola. Revisa antes de duplicar."
                 } else message = "Movimiento revisado. Comprueba tu saldo."
@@ -106,10 +114,16 @@ fun OutlookMailSection(db: FinanceDatabase) {
         modifier = Modifier.fillMaxWidth(), singleLine = true,
         label = { Text("Últimos 4 dígitos de cuenta Banco de Chile") }
     )
+    OutlinedTextField(
+        value = cutoff, onValueChange = { cutoff = it.take(10) },
+        modifier = Modifier.fillMaxWidth(), singleLine = true,
+        label = { Text("Fecha del saldo ya conciliado (AAAA-MM-DD)") }
+    )
+    Text("Solo se ofrecerán operaciones posteriores a esta fecha. Usa el día en que tu saldo bancario ya incluía los movimientos anteriores.", style = MaterialTheme.typography.bodySmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(enabled = !busy, onClick = {
-            message = if (OutlookGraph.saveSettings(context, applicationId, accountSuffix))
-                "Configuración guardada" else "Ingresa un ID de aplicación válido y cuatro dígitos."
+            message = if (OutlookGraph.saveSettings(context, applicationId, accountSuffix, cutoff))
+                "Configuración guardada" else "Comprueba el ID, los cuatro dígitos y la fecha de corte."
             connected = OutlookGraph.isConnected(context)
         }) { Text("Guardar") }
         TextButton(onClick = {
@@ -121,8 +135,8 @@ fun OutlookMailSection(db: FinanceDatabase) {
 
     if (!connected) {
         Button(enabled = !busy, onClick = {
-            if (!OutlookGraph.saveSettings(context, applicationId, accountSuffix)) {
-                message = "Primero ingresa el ID de aplicación y los cuatro dígitos de tu cuenta."
+            if (!OutlookGraph.saveSettings(context, applicationId, accountSuffix, cutoff)) {
+                message = "Primero ingresa el ID de aplicación, los cuatro dígitos de tu cuenta y la fecha del saldo ya conciliado."
             } else {
                 busy = true
                 message = "Solicitando código a Microsoft…"
