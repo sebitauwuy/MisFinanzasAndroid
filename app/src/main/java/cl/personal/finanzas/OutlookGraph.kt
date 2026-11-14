@@ -46,11 +46,16 @@ object OutlookGraph {
 
     fun clientId(context: Context): String = prefs(context).getString("client_id", "").orEmpty()
     fun accountLast4(context: Context): String = prefs(context).getString("account_last4", "").orEmpty()
+    fun cutoffDate(context: Context): String =
+        prefs(context).getString("cutoff_date", LocalDate.now().toString()).orEmpty()
     fun enabled(context: Context): Boolean = prefs(context).getBoolean("auto_on_open", true)
     fun setEnabled(context: Context, enabled: Boolean) { prefs(context).edit().putBoolean("auto_on_open", enabled).apply() }
-    fun saveSettings(context: Context, clientId: String, suffix: String): Boolean {
+    fun saveSettings(context: Context, clientId: String, suffix: String, cutoff: String): Boolean {
         val id = clientId.trim()
         val last4 = suffix.trim()
+        val cutoffParsed = try { LocalDate.parse(cutoff.trim()) } catch (_: Exception) { null }
+        if (cutoffParsed == null || cutoffParsed.isAfter(LocalDate.now()) ||
+            cutoffParsed.isBefore(LocalDate.now().minusYears(3))) return false
         if (!Regex("""[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}""").matches(id) ||
             !Regex("""\d{4}""").matches(last4)) return false
         val previousClient = clientId(context)
@@ -59,7 +64,8 @@ object OutlookGraph {
             forget(context)
         }
         return prefs(context).edit().putString("client_id", id)
-            .putString("account_last4", last4).commit()
+            .putString("account_last4", last4)
+            .putString("cutoff_date", cutoffParsed.toString()).commit()
     }
 
     fun isConnected(context: Context): Boolean = try {
@@ -223,7 +229,8 @@ object OutlookGraph {
         require(Regex("""\d{4}""").matches(suffix)) { "Indica los últimos 4 dígitos de tu cuenta" }
         val token = accessToken(context)
         val history = dao.allMovements()
-        val fromDate = LocalDate.now().minusDays(30).toString()
+        val cutoff = LocalDate.parse(cutoffDate(context))
+        val fromDate = maxOf(LocalDate.now().minusDays(30), cutoff).toString()
         var next: String? = Uri.parse(MAIL_ENDPOINT).buildUpon()
             .appendQueryParameter("\$top", "50")
             .appendQueryParameter("\$filter", "receivedDateTime ge ${fromDate}T00:00:00Z")
@@ -242,6 +249,7 @@ object OutlookGraph {
                 val email = list.optJSONObject(i) ?: continue
                 scanned++
                 val parsed = ChileBankEmailParser.parse(email, suffix) ?: continue
+                if (!LocalDate.parse(parsed.operationDate).isAfter(cutoff)) continue
                 val duplicate = ChileBankEmailParser.possibleDuplicate(parsed, history)
                 val candidate = if (duplicate) parsed.copy(
                     status = "POSIBLE_DUPLICADO",
