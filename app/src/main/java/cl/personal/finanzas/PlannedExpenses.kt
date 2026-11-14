@@ -297,7 +297,10 @@ fun PlannedExpensesScreen(
                         val plan = PlannedExpense(
                             id = old?.id ?: 0L, title = title.trim(), icon = icon,
                             estimatedAmountClp = amount!!, isVariable = variable, frequency = frequency,
-                            nextDueDate = nextDue, anchorDay = date!!.dayOfMonth, defaultAccount = defaultAccount,
+                            nextDueDate = nextDue,
+                            anchorDay = if (old != null && old.nextDueDate == nextDue && old.frequency == frequency)
+                                old.anchorDay else date!!.dayOfMonth,
+                            defaultAccount = defaultAccount,
                             active = old?.active ?: true, lastPaidDate = old?.lastPaidDate.orEmpty(),
                             lastPaidAmountClp = old?.lastPaidAmountClp ?: 0L,
                             lastPaidWithoutMovement = old?.lastPaidWithoutMovement ?: false,
@@ -383,7 +386,9 @@ fun PlannedExpensesScreen(
                         try {
                             db.withTransaction {
                                 val fresh = dao.getPlannedExpense(plan.id) ?: error("Este gasto ya no existe.")
-                                require(fresh.active && fresh.nextDueDate == plan.nextDueDate) {
+                                require(fresh.active && fresh.nextDueDate == plan.nextDueDate &&
+                                    fresh.estimatedAmountClp == plan.estimatedAmountClp &&
+                                    fresh.isVariable == plan.isVariable) {
                                     "Este vencimiento ya fue procesado o modificado."
                                 }
                                 if (!paymentExisting && !paymentConfirmDuplicate) {
