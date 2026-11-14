@@ -1102,7 +1102,10 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                                 FinanceReminderSettingsSection(obligations)
                             }
                             Spacer(Modifier.height(12.dp))
-                            FinanceSettingsGroup("Outlook / Hotmail", "Detectar compras y transferencias por correo", expandedAtStart = false) {
+                            FinanceSettingsGroup("Correos conectados", "Gmail y Outlook · avisos bancarios", expandedAtStart = false) {
+                                GmailMailSection(db)
+                                HorizontalDivider()
+                                Spacer(Modifier.height(6.dp))
                                 OutlookMailSection(db)
                             }
                             Spacer(Modifier.height(12.dp))
