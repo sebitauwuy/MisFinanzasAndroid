@@ -11,8 +11,8 @@ android {
         applicationId = "cl.personal.finanzas"
         minSdk = 26
         targetSdk = 35
-        versionCode = 30
-        versionName = "1.12"
+        versionCode = 31
+        versionName = "1.13"
     }
     signingConfigs {
         create("permanentRelease") {
