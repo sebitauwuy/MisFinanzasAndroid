@@ -14,6 +14,8 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -48,6 +50,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import org.json.JSONArray
 
 @Entity(tableName = "movements")
 data class Movement(
@@ -705,9 +708,26 @@ private fun bankColor(account: String): Color = when (account) {
     "BancoEstado" -> Color(0xFFE36B24)
     "Santander" -> Color(0xFFB82F37)
     "Mercado Pago" -> Color(0xFF168DBD)
-    "Banco Falabella" -> Color(0xFF37823E)
+    "Banco Falabella" -> Color(0xFF43B02A)
     "Efectivo" -> Color(0xFF465B70)
     else -> FinancePalette.Navy
+}
+
+private val financeColorPalette = listOf(
+    "0B2052", "1246A0", "168DBD", "00A6A6",
+    "15854C", "43B02A", "E36B24", "F2A900",
+    "B82F37", "DA4E76", "7137AD", "513F96",
+    "465B70", "20242A", "865B3E", "008C95"
+)
+
+private fun readDashboardOrder(raw: String?): List<String>? {
+    if (raw == null) return null
+    return try {
+        val array = JSONArray(raw)
+        (0 until array.length()).map { array.optString(it) }
+            .filter { it in AccountCatalog.names && AccountCatalog.isCash(it) }
+            .distinct()
+    } catch (_: Exception) { null }
 }
 
 private fun hexFinanceColor(value: String): Color? = try {
@@ -716,6 +736,7 @@ private fun hexFinanceColor(value: String): Color? = try {
         Color(android.graphics.Color.parseColor("#$hex")) else null
 } catch (_: IllegalArgumentException) { null }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun Dashboard(
     movements: List<Movement>,
@@ -730,20 +751,47 @@ fun Dashboard(
     var balanceTheme by remember { mutableStateOf(themePrefs.getString("mode", "auto") ?: "auto") }
     var customHex by remember { mutableStateOf(themePrefs.getString("hex", "0B2052") ?: "0B2052") }
     var themeDialog by remember { mutableStateOf(false) }
+    val cardPrefs = remember(context) { context.getSharedPreferences("dashboard_account_cards", android.content.Context.MODE_PRIVATE) }
+    var manualBankOrder by remember { mutableStateOf(readDashboardOrder(cardPrefs.getString("manual_order", null))) }
+    var cardColorRevision by remember { mutableIntStateOf(0) }
+    var bankMenu by remember { mutableStateOf<String?>(null) }
+    var bankColorEditor by remember { mutableStateOf<String?>(null) }
+    var bankColorChoice by remember { mutableStateOf("") }
+    val overrides = remember(cardColorRevision) {
+        AccountCatalog.names.associateWith { name ->
+            cardPrefs.getString("color_$name", null)?.let(::hexFinanceColor)
+        }
+    }
+    fun cardColor(account: String): Color = overrides[account] ?: bankColor(account)
     val today = LocalDate.now()
     val month = YearMonth.from(today)
     val cashAccounts = visibleAccounts.filter { AccountCatalog.isCash(it) }
     val movementsToDate = movements.filter { parseDate(it.date)?.isAfter(today) != true }
-    val balance = cashAccounts.sumOf { account ->
+    val accountBalances = cashAccounts.associateWith { account ->
         (openingBalances[account] ?: 0L) + movementsToDate.filter { it.account == account }.sumOf { it.amountClp }
     }
-    val leadingAccount = cashAccounts.maxByOrNull { account ->
-        (openingBalances[account] ?: 0L) + movementsToDate.filter { it.account == account }.sumOf { it.amountClp }
+    val balance = accountBalances.values.sum()
+    val automaticBankOrder = cashAccounts.sortedWith(
+        compareByDescending<String> { accountBalances[it] ?: 0L }.thenBy { cashAccounts.indexOf(it) }
+    )
+    val displayedBankOrder = manualBankOrder?.let { saved ->
+        saved.filter { it in cashAccounts } + automaticBankOrder.filterNot { it in saved }
+    } ?: automaticBankOrder
+    fun moveBank(bank: String, newIndex: Int) {
+        val list = displayedBankOrder.toMutableList()
+        if (!list.remove(bank)) return
+        list.add(newIndex.coerceIn(0, list.size), bank)
+        val array = JSONArray()
+        list.forEach { array.put(it) }
+        if (cardPrefs.edit().putString("manual_order", array.toString()).commit()) {
+            manualBankOrder = list
+        }
     }
+    val leadingAccount = automaticBankOrder.firstOrNull()
     val totalColor = when (balanceTheme) {
         "custom" -> hexFinanceColor(customHex) ?: FinancePalette.Navy
-        "auto" -> leadingAccount?.let(::bankColor) ?: FinancePalette.Navy
-        else -> bankColor(balanceTheme)
+        "auto" -> leadingAccount?.let(::cardColor) ?: FinancePalette.Navy
+        else -> cardColor(balanceTheme)
     }
     if (themeDialog) {
         AlertDialog(
@@ -767,13 +815,7 @@ fun Dashboard(
                     }
                     if (balanceTheme == "custom") {
                         Text("Elige un color tocándolo:", style = MaterialTheme.typography.bodyMedium)
-                        val palette = listOf(
-                            "0B2052", "1246A0", "168DBD", "00A6A6",
-                            "15854C", "43B02A", "E36B24", "F2A900",
-                            "B82F37", "DA4E76", "7137AD", "513F96",
-                            "465B70", "20242A", "865B3E", "008C95"
-                        )
-                        palette.chunked(4).forEach { row ->
+                        financeColorPalette.chunked(4).forEach { row ->
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 row.forEach { hex ->
                                     val selected = customHex.removePrefix("#").equals(hex, true)
@@ -808,6 +850,103 @@ fun Dashboard(
                     }) { Text("Guardar") }
             },
             dismissButton = { TextButton(onClick = { themeDialog = false }) { Text("Cerrar") } }
+        )
+    }
+    if (bankMenu != null) {
+        val account = bankMenu!!
+        val position = displayedBankOrder.indexOf(account)
+        AlertDialog(
+            onDismissRequest = { bankMenu = null },
+            title = { Text(AccountCatalog.displayName(account)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("Saldo registrado: ${money(accountBalances[account] ?: 0L)}")
+                    Text(if (manualBankOrder == null) "Orden automático: de mayor a menor saldo."
+                         else "Orden personalizado: se mantiene aunque cambien tus saldos.",
+                        style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = {
+                        bankColorChoice = cardPrefs.getString("color_$account", null)
+                            ?: financeColorPalette.firstOrNull { hexFinanceColor(it) == bankColor(account) }
+                            ?: "0B2052"
+                        bankColorEditor = account
+                        bankMenu = null
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Personalizar color") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            enabled = position > 0,
+                            onClick = { moveBank(account, position - 1) },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("↑ Subir") }
+                        OutlinedButton(
+                            enabled = position >= 0 && position < displayedBankOrder.lastIndex,
+                            onClick = { moveBank(account, position + 1) },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("↓ Bajar") }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(enabled = position > 0, onClick = { moveBank(account, 0) },
+                            modifier = Modifier.weight(1f)) { Text("Poner primero") }
+                        TextButton(
+                            enabled = position >= 0 && position < displayedBankOrder.lastIndex,
+                            onClick = { moveBank(account, displayedBankOrder.lastIndex) },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Poner último") }
+                    }
+                    if (manualBankOrder != null) TextButton(onClick = {
+                        if (cardPrefs.edit().remove("manual_order").commit()) manualBankOrder = null
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Restaurar orden por saldo") }
+                }
+            },
+            confirmButton = { TextButton(onClick = { bankMenu = null }) { Text("Listo") } }
+        )
+    }
+    if (bankColorEditor != null) {
+        val account = bankColorEditor!!
+        AlertDialog(
+            onDismissRequest = { bankColorEditor = null },
+            title = { Text("Color de ${AccountCatalog.displayName(account)}") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Elige un color para esta tarjeta. No cambia los datos financieros.")
+                    financeColorPalette.chunked(4).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            row.forEach { hex ->
+                                val selected = bankColorChoice.equals(hex, ignoreCase = true)
+                                Box(
+                                    Modifier.size(50.dp)
+                                        .background(hexFinanceColor(hex) ?: FinancePalette.Navy,
+                                            RoundedCornerShape(12.dp))
+                                        .border(if (selected) 3.dp else 1.dp,
+                                            if (selected) MaterialTheme.colorScheme.onSurface
+                                            else MaterialTheme.colorScheme.outlineVariant,
+                                            RoundedCornerShape(12.dp))
+                                        .clickable { bankColorChoice = hex },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (selected) Text("✓", color = Color.White,
+                                        style = MaterialTheme.typography.titleLarge)
+                                }
+                            }
+                        }
+                    }
+                    TextButton(onClick = {
+                        if (cardPrefs.edit().remove("color_$account").commit()) {
+                            cardColorRevision++
+                            bankColorEditor = null
+                        }
+                    }) { Text("Usar color original del banco") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (hexFinanceColor(bankColorChoice) != null &&
+                        cardPrefs.edit().putString("color_$account", bankColorChoice).commit()) {
+                        cardColorRevision++
+                        bankColorEditor = null
+                    }
+                }) { Text("Guardar color") }
+            },
+            dismissButton = { TextButton(onClick = { bankColorEditor = null }) { Text("Cancelar") } }
         )
     }
     val monthMovements = movementsToDate.filter { parseDate(it.date)?.let { d -> YearMonth.from(d) == month } == true }
@@ -875,19 +1014,22 @@ fun Dashboard(
         }
         item {
             Text("Disponible por cuenta", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Desglose de tu saldo registrado. No son saldos bancarios en tiempo real.",
+            Text("Ordenadas por saldo (mayor a menor). Mantén pulsada una tarjeta para cambiar el color o moverla.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
-            cashAccounts.chunked(2).forEach { pair ->
+            displayedBankOrder.chunked(2).forEach { pair ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     pair.forEach { account ->
-                        val amount = (openingBalances[account] ?: 0L) +
-                            movementsToDate.filter { it.account == account }.sumOf { it.amountClp }
+                        val amount = accountBalances[account] ?: 0L
                         Card(
-                            modifier = Modifier.weight(1f).padding(bottom = 10.dp),
+                            modifier = Modifier.weight(1f).padding(bottom = 10.dp)
+                                .combinedClickable(
+                                    onClick = { bankMenu = account },
+                                    onLongClick = { bankMenu = account }
+                                ),
                             shape = RoundedCornerShape(18.dp),
-                            colors = CardDefaults.cardColors(containerColor = bankColor(account)),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, bankColor(account))
+                            colors = CardDefaults.cardColors(containerColor = cardColor(account)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, cardColor(account))
                         ) {
                             Column(Modifier.fillMaxWidth().padding(14.dp)) {
                                 Text(AccountCatalog.displayName(account), style = MaterialTheme.typography.labelMedium,
