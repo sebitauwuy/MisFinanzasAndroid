@@ -1495,52 +1495,137 @@ fun Dashboard(
                 }
             }
         }
-        item {
-            Text("Disponible por cuenta", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(if (manualBankOrder == null) "Orden automático: mayor a menor saldo. Mantén pulsada una tarjeta para moverla o cambiar su color." else "Orden personalizado. Mantén pulsada una tarjeta para moverla o cambiar su color.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(8.dp))
-            displayedBankOrder.chunked(2).forEach { pair ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    pair.forEach { account ->
-                        val amount = accountBalances[account] ?: 0L
-                        val cardInteractions = remember(account) { MutableInteractionSource() }
-                        val pressed by cardInteractions.collectIsPressedAsState()
-                        val pressedScale by animateFloatAsState(
-                            targetValue = if (pressed) 0.965f else 1f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            ),
-                            label = "bank_card_press_$account"
-                        )
-                        Card(
-                            modifier = Modifier.weight(1f).padding(bottom = 10.dp)
-                                .graphicsLayer {
-                                    scaleX = pressedScale
-                                    scaleY = pressedScale
+        item(key = "upcoming_dashboard") {
+            Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color.White),
+                modifier = Modifier.fillMaxWidth().border(1.dp, FinancePalette.Border, RoundedCornerShape(22.dp))) {
+                Column(Modifier.fillMaxWidth().padding(15.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Próximos vencimientos", style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold)
+                    if (nextDueRows.isEmpty()) {
+                        Text("No hay gastos ni cuotas próximos registrados.",
+                            style = MaterialTheme.typography.bodySmall, color = FinancePalette.Muted)
+                    } else {
+                        nextDueRows.forEach { due ->
+                            Row(Modifier.fillMaxWidth()
+                                .clickable { onNavigate(due.destinationTab) }
+                                .padding(vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(due.title, style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                    val whenText = when {
+                                        due.date.isBefore(today) -> "Vencido · " + dateForDisplay(due.date.toString())
+                                        due.date == today -> "Hoy"
+                                        else -> dateForDisplay(due.date.toString())
+                                    }
+                                    Text(whenText, style = MaterialTheme.typography.labelSmall,
+                                        color = if (due.date.isBefore(today)) MaterialTheme.colorScheme.error
+                                            else FinancePalette.Muted)
                                 }
-                                .combinedClickable(
-                                    interactionSource = cardInteractions,
-                                    indication = LocalIndication.current,
-                                    onClick = { bankMenu = account },
-                                    onLongClick = { bankMenu = account }
-                                ),
-                            shape = RoundedCornerShape(18.dp),
-                            colors = CardDefaults.cardColors(containerColor = cardColor(account)),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, cardColor(account))
+                                Text(money(due.amountClp), style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold)
+                            }
+                            if (due != nextDueRows.last()) HorizontalDivider(color = FinancePalette.Border)
+                        }
+                    }
+                }
+            }
+        }
+        item(key = "accounts_title") {
+            Text("Disponible por cuenta", style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold)
+            Text(if (manualBankOrder == null)
+                "Mayor a menor saldo · Mantén pulsada una tarjeta para personalizarla."
+                else "Orden personalizado · Mantén pulsada una tarjeta para reorganizarla.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        items(displayedBankOrder.chunked(2), key = { "bank-row-" + it.joinToString("|") }) { pair ->
+            Row(Modifier.fillMaxWidth().animateItem(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                pair.forEach { account ->
+                    val amount = accountBalances[account] ?: 0L
+                    val base = cardColor(account)
+                    val labelColor = if (base.luminance() > 0.42f) FinancePalette.NavyDeep else Color.White
+                    val cardInteractions = remember(account) { MutableInteractionSource() }
+                    val pressed by cardInteractions.collectIsPressedAsState()
+                    val haptics = LocalHapticFeedback.current
+                    val pressedScale by animateFloatAsState(
+                        targetValue = if (pressed) 0.965f else 1f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMedium
+                        ),
+                        label = "bank_scale_$account"
+                    )
+                    val elevation by animateDpAsState(
+                        targetValue = if (pressed) 11.dp else 2.dp,
+                        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                        label = "bank_elevation_$account"
+                    )
+                    val shape = RoundedCornerShape(18.dp)
+                    Card(
+                        modifier = Modifier.weight(1f).padding(bottom = 7.dp)
+                            .shadow(elevation, shape)
+                            .graphicsLayer {
+                                scaleX = pressedScale
+                                scaleY = pressedScale
+                                alpha = if (amount == 0L) 0.56f else 1f
+                            }
+                            .combinedClickable(
+                                interactionSource = cardInteractions,
+                                indication = LocalIndication.current,
+                                onClick = { bankMenu = account },
+                                onLongClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    bankMenu = account
+                                }
+                            ),
+                        shape = shape,
+                        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+                    ) {
+                        Box(
+                            Modifier.fillMaxWidth().background(
+                                Brush.linearGradient(
+                                    listOf(lerp(base, Color.White, 0.12f),
+                                        lerp(base, FinancePalette.NavyDeep, 0.12f))
+                                )
+                            )
                         ) {
-                            Column(Modifier.fillMaxWidth().padding(14.dp)) {
-                                Text(AccountCatalog.displayName(account), style = MaterialTheme.typography.labelMedium,
-                                    color = Color.White, maxLines = 2)
-                                Spacer(Modifier.height(6.dp))
+                            Column(Modifier.fillMaxWidth().padding(13.dp),
+                                verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        Modifier.size(30.dp).background(
+                                            labelColor.copy(alpha = 0.14f), RoundedCornerShape(50)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(AccountCatalog.displayName(account).take(1),
+                                            color = labelColor, fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(AccountCatalog.displayName(account),
+                                        modifier = Modifier.weight(1f),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = labelColor, maxLines = 2)
+                                }
                                 Text(money(amount), style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold, color = Color.White)
+                                    fontWeight = FontWeight.Bold, color = labelColor, maxLines = 1)
                             }
                         }
                     }
-                    if (pair.size == 1) Spacer(Modifier.weight(1f))
                 }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+        item(key = "weekly_vico") {
+            Card(
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                modifier = Modifier.fillMaxWidth().border(1.dp, FinancePalette.Border, RoundedCornerShape(22.dp))
+            ) {
+                WeeklyExpenseChart(movements, modifier = Modifier.fillMaxWidth().padding(15.dp))
             }
         }
         item {
@@ -1634,22 +1719,7 @@ fun Dashboard(
                 }
             }
         }
-        item {
-            Text("Próximos vencimientos", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            if (thisMonth.isEmpty()) {
-                Text("No hay cuotas pendientes registradas para este mes.", style = MaterialTheme.typography.bodyMedium)
-            } else {
-                thisMonth.take(5).forEach { (o, date) ->
-                    ListItem(
-                        headlineContent = { Text(o.title, maxLines = 1) },
-                        supportingContent = { Text("${AccountCatalog.displayName(o.account)} · ${date.dayOfMonth}/${date.monthValue}/${date.year}") },
-                        trailingContent = { Text(money(o.amountClp), fontWeight = FontWeight.Bold) }
-                    )
-                    HorizontalDivider()
-                }
-            }
-            TextButton(onClick = { onNavigate(2) }) { Text("Gestionar todas las cuotas") }
-        }
+
         item {
             Text("Compromisos de los próximos 3 meses", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             future.forEach { (ym, amount) ->
