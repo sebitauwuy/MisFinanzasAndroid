@@ -126,14 +126,14 @@ object CategoryBudgetAlerts {
             }
             if (threshold == 0) return@forEach
             val id = budget.category.trim().lowercase(Locale.ROOT)
-            val key = "\${month}:\${id}:\${threshold}"
+            val key = "${month}:${id}:${threshold}"
             if (prefs.getBoolean(key, false)) return@forEach
             val intent = Intent(context, MainActivity::class.java)
             val pending = PendingIntent.getActivity(context, 0, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            val title = if (threshold == 100) "Presupuesto alcanzado: \${budget.category}"
-                else "Cerca del límite: \${budget.category}"
-            val body = "\${threshold}% del límite mensual · $used pesos registrados"
+            val title = if (threshold == 100) "Presupuesto alcanzado: ${budget.category}"
+                else "Cerca del límite: ${budget.category}"
+            val body = "${threshold}% del límite mensual · $used pesos registrados"
             val notification = NotificationCompat.Builder(context, "category_budgets")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle(title).setContentText(body)
