@@ -9,6 +9,8 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -38,6 +40,8 @@ data class OutlookSyncResult(val scanned: Int, val queued: Int, val possibleDupl
  * Tokens almacenados cifrados con Android Keystore; nunca se guarda la contraseña.
  */
 object OutlookGraph {
+    // Evita solapar la búsqueda automática, el gesto de actualizar y la búsqueda en Ajustes.
+    private val syncMutex = Mutex()
     private const val BASE_AUTH = "https://login.microsoftonline.com/consumers/oauth2/v2.0"
     private const val MAIL_ENDPOINT = "https://graph.microsoft.com/v1.0/me/messages"
     private const val KEY_ALIAS = "misfinanzas-outlook-oauth-key"
@@ -249,7 +253,8 @@ object OutlookGraph {
         return response.getString("access_token")
     }
 
-    suspend fun sync(context: Context, dao: FinanceDao): OutlookSyncResult = withContext(Dispatchers.IO) {
+    suspend fun sync(context: Context, dao: FinanceDao): OutlookSyncResult = syncMutex.withLock {
+        withContext(Dispatchers.IO) {
         require(isConnected(context)) { "Primero conecta Outlook" }
         val suffix = accountLast4(context)
         require(Regex("""\d{4}""").matches(suffix)) { "Indica los últimos 4 dígitos de tu cuenta" }
@@ -311,5 +316,6 @@ object OutlookGraph {
         }
         prefs(context).edit().putLong("last_sync", System.currentTimeMillis()).apply()
         OutlookSyncResult(scanned, added, flagged, bankSender, parsedCount, excludedByDate, unrecognized)
+        }
     }
 }
