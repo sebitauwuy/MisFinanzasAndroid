@@ -3,6 +3,14 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    tags: ['v*']
+
+# Cada push a la misma rama cancela la compilación anterior. Los tags
+# de publicación usan otro grupo para que no los cancele un push a main.
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -73,3 +81,24 @@ jobs:
       - name: Eliminar clave temporal
         if: always()
         run: rm -f "$RUNNER_TEMP/misfinanzas-release.p12"
+
+  release:
+    name: Publicar APK etiquetado
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: MisFinanzas-release-firmado
+          path: release
+      - name: Crear GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -s release/app-release.apk
+          gh release create "$GITHUB_REF_NAME"             "release/app-release.apk#MisFinanzas-$GITHUB_REF_NAME.apk"             --repo "$GITHUB_REPOSITORY"             --title "Mis Finanzas $GITHUB_REF_NAME"             --generate-notes
+
