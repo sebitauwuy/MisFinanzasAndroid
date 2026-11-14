@@ -116,6 +116,7 @@ interface FinanceDao {
     @Query("SELECT * FROM movements ORDER BY date DESC, id DESC")
     fun movements(): Flow<List<Movement>>
     @Insert suspend fun insertMovement(value: Movement): Long
+    @Update suspend fun updateMovement(value: Movement)
     @Query("SELECT * FROM movements WHERE id = :id LIMIT 1")
     suspend fun getMovementById(id: Long): Movement?
     @Delete suspend fun deleteMovement(value: Movement)
@@ -163,7 +164,7 @@ interface FinanceDao {
     suspend fun markMailCandidate(id: String, status: String)
 }
 
-@Database(entities = [Movement::class, Obligation::class, MailCandidate::class, PlannedExpense::class, PlannedExpenseLink::class], version = 6, exportSchema = false)
+@Database(entities = [Movement::class, Obligation::class, MailCandidate::class, PlannedExpense::class, PlannedExpenseLink::class], version = 7, exportSchema = false)
 abstract class FinanceDatabase : RoomDatabase() {
     abstract fun financeDao(): FinanceDao
 }
@@ -225,6 +226,13 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
     }
 }
 
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Conserva todas las filas y añade una categoría no destructiva a los gastos previstos.
+        db.execSQL("ALTER TABLE planned_expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'General'")
+    }
+}
+
 private val accounts = AccountCatalog.names
 private val clp = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CL"))
 private fun money(value: Long) = clp.format(value)
@@ -249,7 +257,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         val db = Room.databaseBuilder(applicationContext, FinanceDatabase::class.java, "finanzas.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build()
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build()
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             sharedText.value = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
         }
@@ -1553,7 +1561,9 @@ fun Dashboard(
                 pair.forEach { account ->
                     val amount = accountBalances[account] ?: 0L
                     val base = cardColor(account)
-                    val labelColor = if (base.luminance() > 0.42f) FinancePalette.NavyDeep else Color.White
+                    // Evita el rectángulo fantasma causado por la transparencia del Card.
+                    val cardBase = if (amount == 0L) lerp(base, Color.White, 0.16f) else base
+                    val labelColor = if (cardBase.luminance() > 0.42f) FinancePalette.NavyDeep else Color.White
                     val cardInteractions = remember(account) { MutableInteractionSource() }
                     val pressed by cardInteractions.collectIsPressedAsState()
                     val haptics = LocalHapticFeedback.current
@@ -1577,7 +1587,6 @@ fun Dashboard(
                             .graphicsLayer {
                                 scaleX = pressedScale
                                 scaleY = pressedScale
-                                alpha = if (amount == 0L) 0.56f else 1f
                             }
                             .combinedClickable(
                                 interactionSource = cardInteractions,
@@ -1594,8 +1603,8 @@ fun Dashboard(
                         Box(
                             Modifier.fillMaxWidth().background(
                                 Brush.linearGradient(
-                                    listOf(lerp(base, Color.White, 0.12f),
-                                        lerp(base, FinancePalette.NavyDeep, 0.12f))
+                                    listOf(lerp(cardBase, Color.White, 0.12f),
+                                        lerp(cardBase, FinancePalette.NavyDeep, 0.12f))
                                 )
                             )
                         ) {
@@ -1839,6 +1848,31 @@ fun MovementScreen(
     var selectedAccount by remember { mutableStateOf("Todas") }
     var movementForPlan by remember { mutableStateOf<Movement?>(null) }
     var deletionWarning by remember { mutableStateOf("") }
+    var categorizingMovement by remember { mutableStateOf<Movement?>(null) }
+    var categoryForEdit by remember { mutableStateOf("General") }
+    if (categorizingMovement != null) {
+        val selected = categorizingMovement!!
+        AlertDialog(
+            onDismissRequest = { categorizingMovement = null },
+            title = { Text("Categorizar movimiento") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(selected.description, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                    ExpenseCategoryPicker(categoryForEdit, { categoryForEdit = it })
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch { dao.updateMovement(selected.copy(category = categoryForEdit)) }
+                    categorizingMovement = null
+                }) { Text("Guardar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { categorizingMovement = null }) { Text("Cancelar") }
+            }
+        )
+    }
     if (movementForPlan != null) {
         LinkPlannedExpenseDialog(
             db = db,
@@ -1866,7 +1900,7 @@ fun MovementScreen(
             OutlinedTextField(description, { description = it }, label = { Text("Descripción") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text("Monto CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             AccountPicker(account, { account = it }, availableAccounts)
-            OutlinedTextField(category, { category = it }, label = { Text("Categoría") }, modifier = Modifier.fillMaxWidth())
+            ExpenseCategoryPicker(category, { category = it })
             CalendarDateField(date, { date = it }, "Fecha del movimiento")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(expense, { expense = true }, label = { Text("Gasto") })
@@ -1954,6 +1988,10 @@ fun MovementScreen(
                                             "Ver gasto pagado" else "✓ Asociar gasto")
                                     }
                                 }
+                                TextButton(onClick = {
+                                    categorizingMovement = m
+                                    categoryForEdit = m.category
+                                }) { Text("Categorizar") }
                             }
                             TextButton(onClick = {
                                 val linked = links.any { it.movementId == m.id } ||
