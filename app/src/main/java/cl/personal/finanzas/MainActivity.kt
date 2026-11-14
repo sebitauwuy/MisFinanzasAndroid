@@ -724,7 +724,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                                 dao.allPlannedExpenses().none {
                                     it.lastPaymentMovementId != 0L && it.lastPaymentMovementId in ids
                                 }) {
-                                "Hay gastos programados vinculados. Desvincúlalos desde Movs. antes de borrar."
+                                "Hay gastos programados vinculados. Desvincúlalos desde Inicio → + Movimiento antes de borrar."
                             }
                             if (account == null) dao.clearMovements()
                             else dao.clearAccountMovements(account)
@@ -867,7 +867,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (tab == 4) {
+                            if (tab == 4 || tab == 1) {
                                 IconButton(onClick = { tab = 0 }) {
                                     Icon(Icons.Filled.ArrowBack, "Volver a Inicio", tint = Color.White)
                                 }
@@ -915,17 +915,17 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             Color.White.copy(alpha = 0.28f) else Color(0xFFF6F9FE),
                         tonalElevation = 0.dp
                     ) {
-                        // Solo cinco accesos. Ajustes sigue disponible en el encabezado.
+                        // Cuatro accesos. Movimientos se abre desde "+ Movimiento" en Inicio.
+                        // Conservamos el ID interno 1 para no alterar rutas ni datos.
                         val sections = listOf(
                             Triple(0, "Inicio", Icons.Filled.Home),
-                            Triple(1, "Movs.", Icons.Filled.AddCircle),
                             Triple(2, "Cuotas", Icons.Filled.CreditCard),
                             Triple(5, "Gastos", Icons.Filled.Event),
                             Triple(3, "Cobros", Icons.Filled.Payments)
                         )
                         sections.forEach { (sectionId, label, sectionIcon) ->
                             val iconScale by animateFloatAsState(
-                                targetValue = if (tab == sectionId) 1.12f else 1f,
+                                targetValue = if (tab == sectionId || (tab == 1 && sectionId == 0)) 1.12f else 1f,
                                 animationSpec = spring(
                                     dampingRatio = Spring.DampingRatioMediumBouncy,
                                     stiffness = Spring.StiffnessMediumLow
@@ -934,7 +934,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             )
                             NavigationBarItem(
                                 modifier = Modifier.padding(horizontal = 3.dp, vertical = 4.dp),
-                                selected = tab == sectionId,
+                                selected = tab == sectionId || (tab == 1 && sectionId == 0),
                                 onClick = { tab = sectionId },
                                 icon = {
                                     Icon(sectionIcon, contentDescription = label,
