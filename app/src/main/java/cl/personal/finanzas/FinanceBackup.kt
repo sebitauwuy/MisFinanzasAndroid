@@ -14,7 +14,7 @@ object FinanceBackup {
         val movements = db.financeDao().allMovements()
         val obligations = db.financeDao().allObligations()
         val mail = db.financeDao().allMailCandidates()
-        val root = JSONObject().put("format", "mis-finanzas").put("version", 5)
+        val root = JSONObject().put("format", "mis-finanzas").put("version", 6)
         val ms = JSONArray()
         movements.forEach { m ->
             ms.put(JSONObject().put("id",m.id).put("account",m.account).put("description",m.description)
@@ -36,6 +36,13 @@ object FinanceBackup {
         }
         root.put("mailCandidates", emails)
         root.put("creditLimits", CreditLimitStore.export(context))
+        val dashboardPrefs = context.getSharedPreferences("dashboard_account_cards", Context.MODE_PRIVATE)
+        val dashboardStyle = JSONObject()
+        dashboardPrefs.getString("manual_order", null)?.let { dashboardStyle.put("manual_order", it) }
+        AccountCatalog.names.filter(AccountCatalog::isCash).forEach { account ->
+            dashboardPrefs.getString("color_$account", null)?.let { dashboardStyle.put("color_$account", it) }
+        }
+        root.put("dashboardCardStyle", dashboardStyle)
         val balances = context.getSharedPreferences("opening_balances", 0)
         val opening = JSONObject()
         AccountCatalog.names.forEach {
@@ -60,7 +67,7 @@ object FinanceBackup {
         val raw = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         require(raw.length < 10_000_000) { "Respaldo demasiado grande" }
         val root = JSONObject(raw)
-        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..5) { "Formato de respaldo no reconocido" }
+        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..6) { "Formato de respaldo no reconocido" }
         val ms = root.getJSONArray("movements")
         val os = root.getJSONArray("obligations")
         require(ms.length() <= 10000 && os.length() <= 10000) { "Demasiados registros" }
@@ -109,6 +116,26 @@ object FinanceBackup {
                 )
             }
         } else emptyList()
+        val dashboardStyle = root.optJSONObject("dashboardCardStyle")
+        if (root.optInt("version") >= 6) require(dashboardStyle != null) { "Falta configuración visual del respaldo" }
+        if (dashboardStyle != null) {
+            if (dashboardStyle.has("manual_order")) {
+                val rawOrder = dashboardStyle.getString("manual_order")
+                val array = JSONArray(rawOrder)
+                val names = (0 until array.length()).map { array.getString(it) }
+                require(names.distinct().size == names.size &&
+                    names.all { it in AccountCatalog.names && AccountCatalog.isCash(it) }) {
+                    "Orden de bancos inválido en respaldo"
+                }
+            }
+            AccountCatalog.names.filter(AccountCatalog::isCash).forEach { account ->
+                if (dashboardStyle.has("color_$account")) {
+                    require(Regex("""[0-9a-fA-F]{6}""").matches(dashboardStyle.getString("color_$account"))) {
+                        "Color de banco inválido en respaldo"
+                    }
+                }
+            }
+        }
         val creditLimits = root.optJSONObject("creditLimits")
         if (creditLimits != null) CreditLimitStore.validate(creditLimits)
         val balances = AccountCatalog.names.associateWith {
@@ -139,6 +166,14 @@ object FinanceBackup {
             cyclesEditor.commit()
         }
         if (creditLimits != null) CreditLimitStore.restore(context, creditLimits)
+        if (dashboardStyle != null) {
+            val editor = context.getSharedPreferences("dashboard_account_cards", Context.MODE_PRIVATE).edit().clear()
+            if (dashboardStyle.has("manual_order")) editor.putString("manual_order", dashboardStyle.getString("manual_order"))
+            AccountCatalog.names.filter(AccountCatalog::isCash).forEach { account ->
+                if (dashboardStyle.has("color_$account")) editor.putString("color_$account", dashboardStyle.getString("color_$account"))
+            }
+            require(editor.commit()) { "No se pudo recuperar el orden y colores bancarios" }
+        }
         if (savedVisibility != null) {
             require(AccountCatalog.save(context, savedVisibility)) {
                 "No se pudo recuperar la selección de cuentas"
