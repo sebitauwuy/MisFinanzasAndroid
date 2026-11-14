@@ -70,7 +70,7 @@ object PaymentDueWidgetUpdater {
         val ids = manager.getAppWidgetIds(ComponentName(context, PaymentDueWidgetProvider::class.java))
         if (ids.isEmpty()) return
         val db = Room.databaseBuilder(context, FinanceDatabase::class.java, "finanzas.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build()
         try {
             render(context, db.financeDao().allObligations(), db.financeDao().allPlannedExpenses())
         } finally {
