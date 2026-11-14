@@ -69,7 +69,7 @@ fun CategoryInsightsScreen(movements: List<Movement>, onBack: () -> Unit) {
     var feedback by remember { mutableStateOf("") }
     val suggestedCategories = (
         spending.keys + movements.filter { it.amountClp < 0 }.map { it.category } +
-        listOf("Alimentación", "Luz", "Agua", "Internet", "Transporte", "Hogar", "Salud", "Otros")
+        ExpenseCategories.predefined + listOf("Alimentación", "Luz", "Agua", "Internet", "Transporte", "Hogar", "Salud", "Otros")
     ).map { it.trim() }.filter { it.isNotBlank() }.distinct().sorted()
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
