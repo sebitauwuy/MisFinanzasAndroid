@@ -1,0 +1,10 @@
+{
+  "client_id": "3db82c7e-2887-4ade-af49-855e769ec42d",
+  "redirect_uri": "msauth://cl.personal.finanzas/J7nG%2BPXHaYDuNuChDmnScNRt6fg%3D",
+  "account_mode": "SINGLE",
+  "authorization_user_agent": "BROWSER",
+  "authorities": [
+    { "type": "AAD", "audience": { "type": "PersonalMicrosoftAccount" }, "default": true }
+  ]
+}
+

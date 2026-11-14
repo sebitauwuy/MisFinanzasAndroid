@@ -40,6 +40,7 @@ data class OutlookSyncResult(val scanned: Int, val queued: Int, val possibleDupl
  * Tokens almacenados cifrados con Android Keystore; nunca se guarda la contraseña.
  */
 object OutlookGraph {
+    const val APP_CLIENT_ID = "3db82c7e-2887-4ade-af49-855e769ec42d"
     // Evita solapar la búsqueda automática, el gesto de actualizar y la búsqueda en Ajustes.
     private val syncMutex = Mutex()
     private const val BASE_AUTH = "https://login.microsoftonline.com/consumers/oauth2/v2.0"
@@ -93,11 +94,18 @@ object OutlookGraph {
     }
 
     fun isConnected(context: Context): Boolean = try {
-        tokens(context)?.optString("refresh_token").orEmpty().isNotBlank() && clientId(context).isNotBlank()
+        prefs(context).getBoolean("msal_connected", false) ||
+            (tokens(context)?.optString("refresh_token").orEmpty().isNotBlank() && clientId(context).isNotBlank())
     } catch (_: Exception) { false }
 
+    fun usesMicrosoftAuth(context: Context): Boolean = prefs(context).getBoolean("msal_connected", false)
+
+    fun markMicrosoftConnected(context: Context) {
+        prefs(context).edit().remove("encrypted_tokens").putBoolean("msal_connected", true).commit()
+    }
+
     fun forget(context: Context) {
-        prefs(context).edit().remove("encrypted_tokens").remove("last_sync").apply()
+        prefs(context).edit().remove("encrypted_tokens").remove("last_sync").remove("msal_connected").apply()
     }
 
     private fun keystoreKey(): SecretKey {
@@ -240,6 +248,7 @@ object OutlookGraph {
     }
 
     private fun accessToken(context: Context): String {
+        if (usesMicrosoftAuth(context)) return OutlookMicrosoftAuth.accessToken(context)
         val current = tokens(context) ?: error("Conecta Outlook antes de sincronizar")
         val access = current.optString("access_token")
         if (access.isNotBlank() && current.optLong("expires_at") > System.currentTimeMillis())
@@ -330,3 +339,4 @@ object OutlookGraph {
         }
     }
 }
+
