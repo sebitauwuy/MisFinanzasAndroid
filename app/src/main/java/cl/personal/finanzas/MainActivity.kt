@@ -48,6 +48,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.time.LocalDate
+import java.time.DayOfWeek
+import java.time.temporal.TemporalAdjusters
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -1246,6 +1248,18 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
     var search by remember { mutableStateOf("") }
     var selectedAccount by remember { mutableStateOf("Todas") }
+    val weekExpanded = remember { mutableStateMapOf<String, Boolean>() }
+    val thisMonday = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    val lastMonday = thisMonday.minusWeeks(1)
+    val filteredMovements = movements.filter {
+        (selectedAccount == "Todas" || it.account == selectedAccount) &&
+            (search.isBlank() || it.description.contains(search, ignoreCase = true) ||
+                it.category.contains(search, ignoreCase = true) || it.date.contains(search))
+    }
+    val groupedMovements = filteredMovements.groupBy { movement ->
+        parseDate(movement.date)?.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))?.toString()
+            ?: "sin-fecha"
+    }.toSortedMap(compareByDescending { it })
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
         item {
             Text("Registrar movimiento", style = MaterialTheme.typography.titleLarge)
@@ -1277,18 +1291,52 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
                 }
             }
         }
-        items(movements.filter {
-            (selectedAccount == "Todas" || it.account == selectedAccount) &&
-                (search.isBlank() || it.description.contains(search, ignoreCase = true) || it.category.contains(search, ignoreCase = true))
-        }, key = { it.id }) { m ->
-            Card(Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(12.dp)) {
-                    Column(Modifier.weight(1f)) {
-                        Text(m.description.ifBlank { "(Sin descripción)" }, style = MaterialTheme.typography.titleMedium)
-                        Text("${AccountCatalog.displayName(m.account)} · ${m.category} · ${m.date}", style = MaterialTheme.typography.bodySmall)
-                        Text(money(m.amountClp))
+        if (filteredMovements.isEmpty()) {
+            item { Text("No hay movimientos que coincidan con el filtro.", style = MaterialTheme.typography.bodySmall) }
+        }
+        groupedMovements.forEach { (weekKey, weekItems) ->
+            val monday = parseDate(weekKey)
+            val weekLabel = when (monday) {
+                thisMonday -> "Esta semana"
+                lastMonday -> "Semana anterior"
+                null -> "Sin fecha"
+                else -> "Semana del ${monday.dayOfMonth}/${monday.monthValue} al ${monday.plusDays(6).dayOfMonth}/${monday.plusDays(6).monthValue}"
+            }
+            val isExpanded = weekExpanded[weekKey] ?: (search.isNotBlank() || monday == thisMonday)
+            item(key = "week_$weekKey") {
+                Card(
+                    onClick = { weekExpanded[weekKey] = !isExpanded },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE8EEF8)),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(weekLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                                color = FinancePalette.Navy)
+                            Text("${weekItems.size} movimientos", style = MaterialTheme.typography.bodySmall,
+                                color = FinancePalette.Muted)
+                        }
+                        Text(if (isExpanded) "▴" else "▾", style = MaterialTheme.typography.titleLarge,
+                            color = FinancePalette.Navy)
                     }
-                    TextButton(onClick = { scope.launch { dao.deleteMovement(m) } }) { Text("Eliminar") }
+                }
+            }
+            if (isExpanded) {
+                items(weekItems, key = { it.id }) { m ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(12.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                Text(m.description.ifBlank { "(Sin descripción)" }, style = MaterialTheme.typography.titleMedium)
+                                Text("${AccountCatalog.displayName(m.account)} · ${m.category} · ${m.date}",
+                                    style = MaterialTheme.typography.bodySmall)
+                                Text(money(m.amountClp))
+                            }
+                            TextButton(onClick = { scope.launch { dao.deleteMovement(m) } }) { Text("Eliminar") }
+                        }
+                    }
                 }
             }
         }
