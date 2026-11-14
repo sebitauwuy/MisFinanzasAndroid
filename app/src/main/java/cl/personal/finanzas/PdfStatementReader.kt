@@ -25,7 +25,10 @@ sealed class ImportedStatement {
  * No interpreta un saldo como un movimiento ni inventa el signo de las compras.
  */
 object PdfStatementReader {
-    private data class Glyph(val page: Int, val x: Float, val y: Float, val value: String)
+    private data class Glyph(
+        val page: Int, val x: Float, val y: Float,
+        val width: Float, val value: String
+    )
     private data class Line(val page: Int, val chars: List<Glyph>) {
         val ordered = chars.sortedBy { it.x }
         val text = ordered.joinToString("") { it.value }
@@ -42,9 +45,19 @@ object PdfStatementReader {
             }
             return null
         }
-        fun cell(from: Float, until: Float): String = ordered.asSequence()
-            .filter { it.x >= from && it.x < until }
-            .joinToString("") { it.value }.trim()
+        fun cell(from: Float, until: Float): String {
+            val filtered = ordered.filter { it.x >= from && it.x < until }
+            val output = StringBuilder()
+            var previous: Glyph? = null
+            filtered.forEach { glyph ->
+                val before = previous
+                if (before != null && glyph.x - (before.x + before.width) > 3.5f)
+                    output.append(' ')
+                output.append(glyph.value)
+                previous = glyph
+            }
+            return output.toString().trim()
+        }
     }
 
     private data class Columns(
@@ -59,7 +72,8 @@ object PdfStatementReader {
             textPositions.forEach { pos ->
                 val value = pos.unicode
                 if (value.isNotBlank()) {
-                    glyphs.add(Glyph(page, pos.xDirAdj, pos.yDirAdj, value))
+                    glyphs.add(Glyph(page, pos.xDirAdj, pos.yDirAdj,
+                        pos.widthDirAdj, value))
                 }
             }
             super.writeString(text, textPositions)
