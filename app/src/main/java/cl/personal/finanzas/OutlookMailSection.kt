@@ -48,7 +48,10 @@ fun OutlookMailSection(db: FinanceDatabase) {
                 db.withTransaction {
                     val fresh = dao.getMailCandidate(candidate.sourceId) ?: return@withTransaction
                     if (fresh.status != "PENDIENTE" && fresh.status != "POSIBLE_DUPLICADO") return@withTransaction
-                    if (!OutlookGraph.isAfterCutoff(context, fresh)) {
+                    val afterCutoff = if (GmailBankSync.isGmailCandidate(fresh))
+                        GmailBankSync.isAfterCutoff(context, fresh)
+                    else OutlookGraph.isAfterCutoff(context, fresh)
+                    if (!afterCutoff) {
                         blockedByCutoff = true
                         return@withTransaction
                     }
