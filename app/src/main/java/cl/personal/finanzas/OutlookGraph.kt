@@ -65,6 +65,8 @@ object OutlookGraph {
         return time.isAfter(LocalTime.parse(cutoffTime(context)))
     }
 
+    fun lastSuccessfulSyncMs(context: Context): Long = prefs(context).getLong("last_sync", 0L)
+
     fun enabled(context: Context): Boolean = prefs(context).getBoolean("auto_on_open", true)
     fun setEnabled(context: Context, enabled: Boolean) { prefs(context).edit().putBoolean("auto_on_open", enabled).apply() }
     fun saveSettings(context: Context, clientId: String, suffix: String, cutoff: String, time: String = cutoffTime(context)): Boolean {
