@@ -184,11 +184,11 @@ fun PlannedExpensesScreen(
                             }
                             Text(clp.format(plan.estimatedAmountClp), fontWeight = FontWeight.Bold)
                         }
-                        Text("Próximo vencimiento: ${due.dayOfMonth}/${due.monthValue}/${due.year}",
+                        Text("Próximo vencimiento: ${dateForDisplay(due.toString())}",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (!due.isAfter(today)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                         if (plan.lastPaidDate.isNotBlank()) {
-                            Text("Último pago: ${clp.format(plan.lastPaidAmountClp)} · ${plan.lastPaidDate}" +
+                            Text("Último pago: ${clp.format(plan.lastPaidAmountClp)} · ${dateForDisplay(plan.lastPaidDate)}" +
                                 if (plan.lastPaidWithoutMovement) " (ya registrado)" else "",
                                 style = MaterialTheme.typography.labelSmall)
                         }
@@ -268,7 +268,7 @@ fun PlannedExpensesScreen(
                             nextDue = LocalDate.of(y, m + 1, d).toString()
                         }, chosen.year, chosen.monthValue - 1, chosen.dayOfMonth).show()
                     }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Próximo vencimiento: $nextDue")
+                        Text("📅 Próximo vencimiento: ${dateForDisplay(nextDue)}")
                     }
                     if (paymentAccounts.isEmpty()) {
                         Text("Activa una cuenta o tarjeta desde Ajustes para poder guardar este gasto.",
@@ -357,7 +357,7 @@ fun PlannedExpensesScreen(
                             paymentDate = LocalDate.of(y, m + 1, d).toString()
                             paymentConfirmDuplicate = false
                         }, date.year, date.monthValue - 1, date.dayOfMonth).show()
-                    }) { Text("Fecha del pago: $paymentDate") }
+                    }) { Text("📅 Fecha del pago: ${dateForDisplay(paymentDate)}") }
                     if (paidDate?.isAfter(today) == true) Text(
                         "No se puede marcar como realizado un pago de una fecha futura.",
                         color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
