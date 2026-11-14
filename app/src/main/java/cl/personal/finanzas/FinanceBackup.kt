@@ -13,7 +13,8 @@ object FinanceBackup {
     suspend fun export(context: Context, uri: Uri, db: FinanceDatabase) = withContext(Dispatchers.IO) {
         val movements = db.financeDao().allMovements()
         val obligations = db.financeDao().allObligations()
-        val root = JSONObject().put("format", "mis-finanzas").put("version", 3)
+        val mail = db.financeDao().allMailCandidates()
+        val root = JSONObject().put("format", "mis-finanzas").put("version", 4)
         val ms = JSONArray()
         movements.forEach { m ->
             ms.put(JSONObject().put("account",m.account).put("description",m.description)
@@ -26,6 +27,14 @@ object FinanceBackup {
                 .put("kind",o.kind).put("installments",o.installments).put("paid",o.paid).put("paidCount",o.paidCount))
         }
         root.put("movements",ms).put("obligations",os)
+        val emails = JSONArray()
+        mail.forEach { m ->
+            emails.put(JSONObject().put("sourceId", m.sourceId).put("operationDate", m.operationDate)
+                .put("description", m.description).put("amountClp", m.amountClp)
+                .put("account", m.account).put("category", m.category)
+                .put("status", m.status).put("note", m.note))
+        }
+        root.put("mailCandidates", emails)
         val balances = context.getSharedPreferences("opening_balances", 0)
         val opening = JSONObject()
         AccountCatalog.names.forEach {
@@ -50,7 +59,7 @@ object FinanceBackup {
         val raw = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         require(raw.length < 10_000_000) { "Respaldo demasiado grande" }
         val root = JSONObject(raw)
-        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..3) { "Formato de respaldo no reconocido" }
+        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..4) { "Formato de respaldo no reconocido" }
         val ms = root.getJSONArray("movements")
         val os = root.getJSONArray("obligations")
         require(ms.length() <= 10000 && os.length() <= 10000) { "Demasiados registros" }
@@ -67,7 +76,7 @@ object FinanceBackup {
         }
         val opening = root.optJSONObject("openingBalances")
         val billing = root.optJSONObject("billingCycles")
-        val savedVisibility = if (root.optInt("version") == 3) {
+        val savedVisibility = if (root.optInt("version") >= 3) {
             val selected = root.getJSONArray("visibleAccounts")
             val list = (0 until selected.length()).map { selected.getString(it) }
             require(list.isNotEmpty() && list.all { it in AccountCatalog.names }) {
@@ -75,6 +84,23 @@ object FinanceBackup {
             }
             list
         } else null
+        val emails = root.optJSONArray("mailCandidates")
+        require(emails == null || emails.length() <= 1500) { "Demasiados avisos bancarios" }
+        val candidates = if (root.optInt("version") >= 4 && emails != null) {
+            (0 until emails.length()).map { index ->
+                val m = emails.getJSONObject(index)
+                val status = m.getString("status")
+                require(status in listOf("PENDIENTE", "POSIBLE_DUPLICADO", "IMPORTADO", "OMITIDO")) {
+                    "Estado de aviso inválido"
+                }
+                MailCandidate(
+                    sourceId = m.getString("sourceId"), operationDate = m.getString("operationDate"),
+                    description = m.getString("description"), amountClp = m.getLong("amountClp"),
+                    account = m.getString("account"), category = m.getString("category"),
+                    status = status, note = m.optString("note")
+                )
+            }
+        } else emptyList()
         val balances = AccountCatalog.names.associateWith {
             opening?.optLong(it, 0L) ?: 0L
         }
@@ -89,6 +115,8 @@ object FinanceBackup {
         db.withTransaction {
             db.financeDao().clearMovements()
             db.financeDao().clearObligations()
+            db.financeDao().clearMailCandidates()
+            candidates.forEach { db.financeDao().insertMailCandidate(it) }
             movements.forEach { db.financeDao().insertMovement(it) }
             obligations.forEach { db.financeDao().insertObligation(it) }
         }
