@@ -37,7 +37,7 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.compose.material:material-icons-extended")
@@ -49,5 +49,11 @@ dependencies {
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    // Haze 2.1.0: desenfoque de la barra de navegación en Android 12+.
+    implementation("dev.chrisbanes.haze:haze:2.1.0")
+    implementation("dev.chrisbanes.haze:haze-blur:2.1.0")
+    implementation("dev.chrisbanes.haze:haze-blur-materials:2.1.0")
+    // Vico: gráfico semanal de gastos.
+    implementation("com.patrykandpatrick.vico:compose:3.3.1")
     kapt("androidx.room:room-compiler:2.6.1")
 }
