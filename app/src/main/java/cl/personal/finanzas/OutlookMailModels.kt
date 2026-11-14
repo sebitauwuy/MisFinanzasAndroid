@@ -66,15 +66,25 @@ object ChileBankEmailParser {
                 dateMatch.groupValues[1].toInt())
         } catch (_: Exception) { return null }
         val time = transferTime(normalized)
+        val bank = Regex("""(?i)\\bBanco\\s+(.+?)(?=\\s+Email\\b|$)""")
+            .find(dest)?.groupValues?.get(1)?.trim()?.take(55)
+        val destinationLabel = when {
+            bank?.contains("MACH", ignoreCase = true) == true -> "MACH"
+            bank?.contains("TENPO", ignoreCase = true) == true -> "Tenpo"
+            bank?.contains("ESTADO", ignoreCase = true) == true -> "BancoEstado"
+            bank?.contains("SANTANDER", ignoreCase = true) == true -> "Santander"
+            else -> bank ?: "Banco no identificado"
+        }
+        val last4 = destNumber.takeLast(4)
         val recipient = Regex("""(?is)Nombre\s+y\s+Apellido\s+(.+?)\s+Rut\b""")
             .find(dest)?.groupValues?.get(1)?.trim()?.take(65)
         return MailCandidate(
             sourceId = hash, operationDate = day.toString(),
-            description = if (internal) "Traspaso entre mis cuentas" else "Transferencia a ${recipient ?: "tercero"}",
+            description = if (internal) "Traspaso entre mis cuentas" else "Transferencia a $destinationLabel ••••$last4",
             amountClp = if (internal && destMatch && !originMatch) value else -value,
             category = if (internal) "Transferencia interna" else "Transferencia",
             note = (if (internal) "Requiere asociar ambas cuentas propias. No registrar como gasto ni ingreso."
-                else "Transferencia enviada; comprobar contra cartola.") + (time?.let { " Hora operación: $it" } ?: "")
+                else "Destinatario informado: ${recipient ?: "no indicado"}. Verificar titularidad de la cuenta.") + (time?.let { " Hora operación: $it" } ?: "")
         )
     }
 
