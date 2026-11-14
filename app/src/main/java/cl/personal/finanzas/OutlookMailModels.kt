@@ -33,10 +33,10 @@ object ChileBankEmailParser {
 
     private fun parseNewTransfer(body: String, subject: String, hash: String, suffix: String): MailCandidate? {
         if (subject !in setOf("transferencia a terceros", "transferencia entre mis cuentas")) return null
-        val normalized = body.replace(Regex("""\\s+"""), " ")
-        val origin = Regex("""(?is)\\bOrigen\\b(.*?)\\bDestino\\b""").find(normalized)?.groupValues?.get(1) ?: return null
-        val dest = Regex("""(?is)\\bDestino\\b(.*?)\\bMonto\\b""").find(normalized)?.groupValues?.get(1) ?: return null
-        val accountPattern = Regex("""(?i)N[°ºo]?\\s*de\\s*Cuenta\\s*([0-9][0-9-]{5,})""")
+        val normalized = body.replace(Regex("""\s+"""), " ")
+        val origin = Regex("""(?is)\bOrigen\b(.*?)\bDestino\b""").find(normalized)?.groupValues?.get(1) ?: return null
+        val dest = Regex("""(?is)\bDestino\b(.*?)\bMonto\b""").find(normalized)?.groupValues?.get(1) ?: return null
+        val accountPattern = Regex("""(?i)N[°ºo]?\s*de\s*Cuenta\s*([0-9][0-9-]{5,})""")
         val originNumber = accountPattern.find(origin)?.groupValues?.get(1)?.filter(Char::isDigit) ?: return null
         val destNumber = accountPattern.find(dest)?.groupValues?.get(1)?.filter(Char::isDigit) ?: return null
         val originMatch = originNumber.endsWith(suffix)
@@ -44,18 +44,18 @@ object ChileBankEmailParser {
         if (!originMatch && !destMatch) return null
         val internal = subject == "transferencia entre mis cuentas"
         if (!internal && !originMatch) return null
-        val amountMatch = Regex("""(?i)\\bMonto\\s*\\$\\s*([0-9][0-9.,]*)""").find(normalized) ?: return null
+        val amountMatch = Regex("""(?i)\bMonto\s*\$\s*([0-9][0-9.,]*)""").find(normalized) ?: return null
         val value = parseClp(amountMatch.groupValues[1]) ?: return null
         val months = mapOf("enero" to 1, "febrero" to 2, "marzo" to 3, "abril" to 4,
             "mayo" to 5, "junio" to 6, "julio" to 7, "agosto" to 8,
             "septiembre" to 9, "octubre" to 10, "noviembre" to 11, "diciembre" to 12)
-        val dateMatch = Regex("""(?i)(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\\s+(\\d{1,2})\\s+de\\s+([a-záéíóú]+)\\s+de\\s+(\\d{4})""").find(normalized) ?: return null
+        val dateMatch = Regex("""(?i)(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\s+(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})""").find(normalized) ?: return null
         val day = try {
             LocalDate.of(dateMatch.groupValues[3].toInt(),
                 months[dateMatch.groupValues[2].lowercase(Locale.ROOT)] ?: return null,
                 dateMatch.groupValues[1].toInt())
         } catch (_: Exception) { return null }
-        val recipient = Regex("""(?is)Nombre\\s+y\\s+Apellido\\s+(.+?)\\s+Rut\\b""")
+        val recipient = Regex("""(?is)Nombre\s+y\s+Apellido\s+(.+?)\s+Rut\b""")
             .find(dest)?.groupValues?.get(1)?.trim()?.take(65)
         return MailCandidate(
             sourceId = hash, operationDate = day.toString(),
