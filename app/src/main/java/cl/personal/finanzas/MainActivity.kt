@@ -569,7 +569,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                                 MovementScreen(movements, dao, scope, visibleAccounts)
                             }
                         }
-                        2 -> ObligationScreen(obligations.filter { it.kind == "Pago" }, "Pago", dao, scope, visibleAccounts)
+                        2 -> ObligationScreen(obligations.filter { it.kind == "Pago" }, "Pago", dao, scope, visibleAccounts, movements)
                         3 -> ObligationScreen(obligations.filter { it.kind == "Reembolso" }, "Reembolso", dao, scope, visibleAccounts)
                         else -> {
                             Spacer(Modifier.height(16.dp))
@@ -963,7 +963,7 @@ fun Dashboard(
                         Text(AccountCatalog.displayName(account), fontWeight = FontWeight.SemiBold)
                         Text(money(amount), style = MaterialTheme.typography.titleMedium)
                         if (!AccountCatalog.isCash(account))
-                            Text("Crédito · No suma al disponible", style = MaterialTheme.typography.labelSmall, color = FinancePalette.Muted)
+                            Text("Crédito · Cupo disponible en Cuotas", style = MaterialTheme.typography.labelSmall, color = FinancePalette.Muted)
                     }
                     TextButton(onClick = {
                         editingAccount = account
@@ -1094,13 +1094,20 @@ fun MovementScreen(movements: List<Movement>, dao: FinanceDao, scope: kotlinx.co
 }
 
 @Composable
-fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, scope: kotlinx.coroutines.CoroutineScope, availableAccounts: List<String>) {
+fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, scope: kotlinx.coroutines.CoroutineScope, availableAccounts: List<String>, movements: List<Movement> = emptyList()) {
     var title by remember(kind) { mutableStateOf("") }
     var amount by remember(kind) { mutableStateOf("") }
     var account by remember(kind, availableAccounts) { mutableStateOf(listOf(if (kind == "Pago") "CMR" else "Banco de Chile").firstOrNull { it in availableAccounts } ?: availableAccounts.firstOrNull() ?: "Banco de Chile") }
     var date by remember(kind) { mutableStateOf(LocalDate.now().toString()) }
     var installments by remember(kind) { mutableStateOf("1") }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+        if (kind == "Pago") {
+            item {
+                CreditLimitsSection(movements, availableAccounts)
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+            }
+        }
         item {
             Text(if (kind == "Pago") "Cuotas y pagos pendientes" else "Reembolsos por cobrar", style = MaterialTheme.typography.titleLarge)
             Text(if (kind == "Pago") "Ingresa el valor de CADA cuota y la fecha del primer vencimiento. Para gastos recurrentes, registra cada mes como un pago separado." else "Registra dinero que otra persona debe devolverte.", style = MaterialTheme.typography.bodySmall)
