@@ -13,6 +13,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -765,10 +766,37 @@ fun Dashboard(
                         }
                     }
                     if (balanceTheme == "custom") {
-                        OutlinedTextField(value = customHex, onValueChange = { customHex = it.take(7) },
-                            label = { Text("Color hexadecimal (ej. 0B2052)") }, singleLine = true)
-                        if (hexFinanceColor(customHex) == null) Text("Ingresa seis caracteres hexadecimales.",
-                            color = MaterialTheme.colorScheme.error)
+                        Text("Elige un color tocándolo:", style = MaterialTheme.typography.bodyMedium)
+                        val palette = listOf(
+                            "0B2052", "1246A0", "168DBD", "00A6A6",
+                            "15854C", "43B02A", "E36B24", "F2A900",
+                            "B82F37", "DA4E76", "7137AD", "513F96",
+                            "465B70", "20242A", "865B3E", "008C95"
+                        )
+                        palette.chunked(4).forEach { row ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                row.forEach { hex ->
+                                    val selected = customHex.removePrefix("#").equals(hex, true)
+                                    Box(
+                                        Modifier.size(50.dp)
+                                            .background(hexFinanceColor(hex) ?: FinancePalette.Navy,
+                                                RoundedCornerShape(12.dp))
+                                            .border(
+                                                if (selected) 3.dp else 1.dp,
+                                                if (selected) MaterialTheme.colorScheme.onSurface
+                                                else MaterialTheme.colorScheme.outlineVariant,
+                                                RoundedCornerShape(12.dp)
+                                            )
+                                            .clickable { customHex = hex },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (selected) Text("✓", color = Color.White,
+                                            style = MaterialTheme.typography.titleLarge)
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
+                        }
                     }
                 }
             },
