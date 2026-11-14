@@ -93,6 +93,7 @@ interface FinanceDao {
     @Update suspend fun updateObligation(value: Obligation)
     @Delete suspend fun deleteObligation(value: Obligation)
     @Query("SELECT * FROM obligations ORDER BY id") suspend fun allObligations(): List<Obligation>
+    @Query("SELECT * FROM obligations WHERE id = :id LIMIT 1") suspend fun getObligationById(id: Long): Obligation?
     @Query("DELETE FROM obligations") suspend fun clearObligations()
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMailCandidate(candidate: MailCandidate): Long
@@ -184,6 +185,12 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
     }.collectAsState(initial = null)
     val movements = loadedMovements.orEmpty()
     val obligations = loadedObligations.orEmpty()
+    LaunchedEffect(loadedObligations) {
+        if (loadedObligations != null) {
+            try { FinanceReminderScheduler.reschedule(context, loadedObligations.orEmpty()) }
+            catch (_: Exception) { /* Se puede reintentar guardando los recordatorios en Ajustes. */ }
+        }
+    }
     var tab by remember { mutableStateOf(0) }
     var showEmailImporter by remember { mutableStateOf(false) }
     LaunchedEffect(sharedText) {
@@ -658,6 +665,10 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                             Text("Si activas el bloqueo, se solicitará al iniciar de nuevo la app. La base de datos local todavía no tiene cifrado de archivo.", style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { unlocked = false; requestUnlock() }, enabled = lockEnabled) { Text("Bloquear ahora") }
                             Spacer(Modifier.height(20.dp))
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            FinanceSettingsGroup("Recordatorios", "Cobros y créditos con avisos independientes", expandedAtStart = false) {
+                                FinanceReminderSettingsSection(obligations)
                             }
                             Spacer(Modifier.height(12.dp))
                             FinanceSettingsGroup("Outlook / Hotmail", "Detectar compras y transferencias por correo", expandedAtStart = false) {
