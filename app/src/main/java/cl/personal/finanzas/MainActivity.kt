@@ -500,7 +500,7 @@ fun FinanceApp(db: FinanceDatabase) {
                             Column(Modifier.weight(1f)) {
                                 Text("Mis Finanzas", color = Color.White,
                                     style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("v1.0 · TUS FINANZAS EN ORDEN", color = FinancePalette.Cyan,
+                                Text("v1.1 · TUS FINANZAS EN ORDEN", color = FinancePalette.Cyan,
                                     style = MaterialTheme.typography.labelSmall)
                             }
                             Surface(color = Color.White.copy(alpha = 0.13f),
