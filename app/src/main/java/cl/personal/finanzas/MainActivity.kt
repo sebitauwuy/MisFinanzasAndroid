@@ -63,6 +63,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.room.*
 import androidx.room.withTransaction
@@ -400,17 +401,6 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
     var reconcileDate by remember { mutableStateOf(LocalDate.now().toString()) }
     var cardPdfReport by remember { mutableStateOf<CardPdfReport?>(null) }
     var cardPdfError by remember { mutableStateOf<String?>(null) }
-    val cardPdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
-            cardPdfReport = null
-            cardPdfError = null
-            try {
-                cardPdfReport = CardPdfReader.read(context, uri)
-            } catch (e: Exception) {
-                cardPdfError = e.message ?: "No se pudo leer el PDF"
-            }
-        }
-    }
     if (cardPdfReport != null || cardPdfError != null) {
         val report = cardPdfReport
         AlertDialog(
@@ -449,21 +439,102 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
     var csvRealBalance by remember { mutableStateOf("") }
     var csvMessage by remember { mutableStateOf("") }
     var csvExisting by remember { mutableStateOf<List<Movement>>(emptyList()) }
-    val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
+    var pdfPasswordUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pdfPasswordInput by remember { mutableStateOf("") }
+    var pdfPasswordError by remember { mutableStateOf("") }
+    fun loadStatement(uri: android.net.Uri, password: String = "") {
+        scope.launch {
             try {
-                csvPreview = StatementImport.read(context, uri, csvAccount)
-                csvCutoff = LocalDate.now().toString()
-                csvRealBalance = ""
-                csvExisting = dao.allMovements()
-                csvMessage = "Cartola leída: ${csvPreview.size} movimientos. Confirma el saldo real y su fecha antes de importar."
-            } catch (e: Exception) {
+                when (val parsed = StatementImport.readDocument(context, uri, csvAccount, password)) {
+                    is ImportedStatement.CardSummary -> {
+                        cardPdfReport = parsed.report
+                        cardPdfError = null
+                        csvMessage = ""
+                        csvPreview = emptyList()
+                    }
+                    is ImportedStatement.Movements -> {
+                        if (parsed.source == "CuentaRUT / BancoEstado" && csvAccount != "BancoEstado") {
+                            error("Esta cartola parece ser de CuentaRUT. Selecciona BancoEstado antes de importar.")
+                        }
+                        csvPreview = parsed.items
+                        csvCutoff = LocalDate.now().toString()
+                        csvRealBalance = ""
+                        csvExisting = dao.allMovements()
+                        csvMessage = "Cartola leída (" + parsed.source + "): " +
+                            parsed.items.size + " movimientos. Revisa fechas, cargos y abonos. " +
+                            if (AccountCatalog.isCash(csvAccount))
+                                "Confirma el saldo real del banco antes de guardar."
+                            else "Se importarán movimientos, sin modificar ningún saldo inicial."
+                    }
+                }
+                pdfPasswordUri = null
+                pdfPasswordError = ""
+            } catch (_: PdfPasswordRequiredException) {
+                pdfPasswordUri = uri
+                pdfPasswordError = if (password.isEmpty()) "" else
+                    "Contraseña incorrecta o PDF no desbloqueable. Intenta nuevamente."
+                csvMessage = ""
                 csvPreview = emptyList()
-                csvMessage = "No se pudo leer: ${e.message}"
+            } catch (e: Exception) {
+                pdfPasswordUri = null
+                pdfPasswordError = ""
+                csvPreview = emptyList()
+                csvMessage = "No se pudo leer: " + (e.message ?: "formato desconocido")
+            } finally {
+                // La contraseña vive solo en el estado temporal del formulario.
+                pdfPasswordInput = ""
             }
         }
     }
+    val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) loadStatement(uri)
+    }
+    if (pdfPasswordUri != null) {
+        val pending = pdfPasswordUri!!
+        AlertDialog(
+            onDismissRequest = {
+                pdfPasswordUri = null
+                pdfPasswordInput = ""
+                pdfPasswordError = ""
+            },
+            title = { Text("Desbloquear PDF") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Ingresa la contraseña de apertura de esta cartola. Se utiliza solo " +
+                        "para leer el archivo en tu teléfono; no se guarda ni se envía.")
+                    Text("No ingreses aquí tu clave bancaria, clave de internet o PIN.",
+                        style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(
+                        value = pdfPasswordInput,
+                        onValueChange = { pdfPasswordInput = it },
+                        label = { Text("Contraseña del archivo PDF") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        singleLine = true, modifier = Modifier.fillMaxWidth()
+                    )
+                    if (pdfPasswordError.isNotBlank()) Text(
+                        pdfPasswordError, color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = pdfPasswordInput.isNotEmpty(), onClick = {
+                    val submitted = pdfPasswordInput
+                    pdfPasswordInput = ""
+                    loadStatement(pending, submitted)
+                }) { Text("Desbloquear") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    pdfPasswordUri = null
+                    pdfPasswordInput = ""
+                    pdfPasswordError = ""
+                }) { Text("Cancelar") }
+            }
+        )
+    }
     if (csvMessage.isNotBlank()) {
+        val cashImport = AccountCatalog.isCash(csvAccount)
         val asOf = parseDate(csvCutoff)
         val realBalance = csvRealBalance.trim().toLongOrNull()
         val statementDates = csvPreview.mapNotNull { parseDate(it.date) }
@@ -490,7 +561,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
             asOf != null && parseDate(row.date)?.isAfter(asOf) == false
         }.sumOf { it.amountClp }
         val newAtDate = newRows.sumOf { it.amountClp }
-        val calculatedOpening = if (realBalance != null) {
+        val calculatedOpening = if (cashImport && realBalance != null) {
             try { Math.subtractExact(realBalance, Math.addExact(recordedAtDate, newAtDate)) }
             catch (_: ArithmeticException) { null }
         } else null
@@ -499,23 +570,34 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
         }
         AlertDialog(
             onDismissRequest = { csvMessage = ""; csvPreview = emptyList() },
-            title = { Text("Conciliar cartola con el banco") },
+            title = { Text(if (cashImport) "Conciliar cartola con el banco" else "Importar movimientos de tarjeta") },
             text = {
                 Column(Modifier.heightIn(max = 390.dp).verticalScroll(rememberScrollState())) {
                     Text(csvMessage)
                     if (firstStatementDate != null && lastStatementDate != null)
                         Text("Fechas de la cartola: $firstStatementDate a $lastStatementDate", style = MaterialTheme.typography.bodySmall)
-                    CalendarDateField(csvCutoff, { csvCutoff = it }, "Fecha del saldo bancario")
-                    OutlinedTextField(csvRealBalance, { csvRealBalance = it.filter { c -> c.isDigit() || c == '-' } },
-                        label = { Text("Saldo real del banco (CLP)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth())
+                    CalendarDateField(csvCutoff, { csvCutoff = it },
+                        if (cashImport) "Fecha del saldo bancario" else "Importar movimientos hasta")
+                    if (cashImport) {
+                        OutlinedTextField(csvRealBalance, {
+                            csvRealBalance = it.filter { c -> c.isDigit() || c == '-' }
+                        }, label = { Text("Saldo real del banco (CLP)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth())
+                    } else {
+                        Text("Tarjeta de crédito: no se modifica ningún saldo inicial, " +
+                            "cupo ni registro de cuotas. Comprueba que los cargos " +
+                            "no estén importados previamente.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
                     if (asOf == null) Text("Fecha inválida", color = MaterialTheme.colorScheme.error)
                     else if (asOf.isAfter(LocalDate.now())) Text("La fecha del saldo no puede ser futura.", color = MaterialTheme.colorScheme.error)
                     else if (firstStatementDate != null && asOf.isBefore(firstStatementDate))
                         Text("La fecha es anterior a todos los movimientos de la cartola. Elige una fecha igual o posterior a $firstStatementDate.", color = MaterialTheme.colorScheme.error)
-                    else if (realBalance == null) Text("Ingresa el saldo real, sin puntos ni símbolo de pesos.")
-                    else if (calculatedOpening == null) Text("El monto excede el rango admitido.")
+                    else if (cashImport && realBalance == null)
+                        Text("Ingresa el saldo real, sin puntos ni símbolo de pesos.")
+                    else if (cashImport && calculatedOpening == null)
+                        Text("El monto excede el rango admitido.")
                     else {
                         Text("Movimientos nuevos hasta la fecha: ${newRows.size}")
                         Text("Movimientos del archivo posteriores a la fecha: ${csvPreview.count { parseDate(it.date)?.isAfter(asOf) == true }}")
@@ -523,42 +605,72 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             Text("No hay movimientos para conciliar en esta fecha. Cambia la fecha antes de guardar.", color = MaterialTheme.colorScheme.error)
                         Text("Movimientos ya registrados hasta la fecha: ${accountHistory.count { parseDate(it.date)?.isAfter(asOf) == false }}")
                         Text("Variación total de movimientos: ${money(recordedAtDate + newAtDate)}")
-                        Text("Saldo inicial calculado: ${money(calculatedOpening)}", style = MaterialTheme.typography.titleMedium)
-                        Text("Saldo conciliado a ${asOf}: ${money(realBalance)}", style = MaterialTheme.typography.titleMedium)
-                        if (laterCount > 0) Text("Atención: ya tienes ${laterCount} movimientos posteriores a esa fecha; cambiarán el saldo mostrado hoy.", color = MaterialTheme.colorScheme.error)
-                        Text("Se reemplazará el saldo inicial de ${csvAccount}; no se creará un ingreso ficticio. Solo se agregarán movimientos nuevos anteriores o iguales a la fecha indicada.", style = MaterialTheme.typography.bodySmall)
+                        if (cashImport && calculatedOpening != null && realBalance != null) {
+                            Text("Saldo inicial calculado: ${money(calculatedOpening)}",
+                                style = MaterialTheme.typography.titleMedium)
+                            Text("Saldo conciliado a ${asOf}: ${money(realBalance)}",
+                                style = MaterialTheme.typography.titleMedium)
+                            if (laterCount > 0) Text("Atención: hay ${laterCount} movimientos posteriores " +
+                                "a esa fecha; cambiarán el saldo mostrado hoy.",
+                                color = MaterialTheme.colorScheme.error)
+                            Text("Se reemplazará el saldo inicial de ${csvAccount}; " +
+                                "no se creará un ingreso ficticio. Solo se agregarán " +
+                                "movimientos nuevos anteriores o iguales a la fecha indicada.",
+                                style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            Text("Se añadirán solo movimientos nuevos a ${csvAccount}, " +
+                                "sin modificar el saldo inicial ni las cuotas.",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
                         newRows.take(5).forEach { Text("${it.date} · ${it.description} · ${money(it.amountClp)}", style = MaterialTheme.typography.bodySmall) }
                     }
                 }
             },
             confirmButton = {
-                TextButton(enabled = csvPreview.isNotEmpty() && dateWithinStatement &&
-                    calculatedOpening != null && (newRows.isNotEmpty() || (asOf != null && accountHistory.any { parseDate(it.date)?.isAfter(asOf) == false })), onClick = {
-                    val account = csvAccount
-                    val target = calculatedOpening!!
-                    val batch = newRows.toList()
-                    csvMessage = ""; csvPreview = emptyList()
-                    scope.launch {
-                        try {
-                            db.withTransaction {
-                                // La lista batch ya excluye los registros existentes con conteo de ocurrencias.
-                                batch.forEach { row -> dao.insertMovement(row) }
+                TextButton(
+                    enabled = csvPreview.isNotEmpty() && dateWithinStatement &&
+                        if (cashImport) {
+                            calculatedOpening != null &&
+                                (newRows.isNotEmpty() || accountHistory.any {
+                                    asOf != null && parseDate(it.date)?.isAfter(asOf) == false
+                                })
+                        } else newRows.isNotEmpty(),
+                    onClick = {
+                        val account = csvAccount
+                        val target = calculatedOpening
+                        val batch = newRows.toList()
+                        val cutoffDate = asOf!!
+                        csvMessage = ""; csvPreview = emptyList()
+                        scope.launch {
+                            try {
+                                db.withTransaction {
+                                    // Evita duplicados según cantidad de ocurrencias del historial.
+                                    batch.forEach { row -> dao.insertMovement(row) }
+                                }
+                                if (cashImport && target != null) {
+                                    if (!balancePrefs.edit().putLong(account, target).commit())
+                                        error("No se pudo guardar el saldo inicial")
+                                    openingBalances = openingBalances + (account to target)
+                                    val persisted = dao.allMovements().filter {
+                                        it.account == account &&
+                                            parseDate(it.date)?.isAfter(cutoffDate) == false
+                                    }.sumOf { it.amountClp }
+                                    val verified = target + persisted
+                                    Toast.makeText(context,
+                                        if (verified == realBalance)
+                                            "Conciliado a la fecha: ${money(verified)}"
+                                        else "Revisa el saldo conciliado",
+                                        Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, "${batch.size} movimientos importados en ${account}.",
+                                        Toast.LENGTH_LONG).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                             }
-                            if (!balancePrefs.edit().putLong(account, target).commit())
-                                error("No se pudo guardar el saldo inicial")
-                            openingBalances = openingBalances + (account to target)
-                            val persisted = dao.allMovements().filter { it.account == account &&
-                                parseDate(it.date)?.isAfter(asOf!!) == false }.sumOf { it.amountClp }
-                            val verified = target + persisted
-                            Toast.makeText(context,
-                                if (verified == realBalance) "Conciliado a la fecha: ${money(verified)}"
-                                else "Revisa el saldo: diferencia ${money(realBalance!! - verified)}",
-                                Toast.LENGTH_LONG).show()
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                         }
                     }
-                }) { Text("Conciliar y guardar") }
+                ) { Text(if (cashImport) "Conciliar y guardar" else "Importar movimientos") }
             },
             dismissButton = { TextButton(onClick = { csvMessage = ""; csvPreview = emptyList() }) { Text("Cancelar") } }
         )
@@ -1010,15 +1122,27 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             Spacer(Modifier.height(12.dp))
                             }
                             Spacer(Modifier.height(12.dp))
-                            FinanceSettingsGroup("Importar documentos", "Cartolas y resúmenes PDF", expandedAtStart = true) {
-                            Text("Lee XLS binario de débito Banco Falabella, TXT de Banco de Chile y CSV genérico (fecha, descripción, monto). Selecciona la institución correcta. La cartola de débito no representa la deuda de CMR.", style = MaterialTheme.typography.bodySmall)
+                            FinanceSettingsGroup("Importar documentos", "Cartolas PDF, CSV, TXT y XLS", expandedAtStart = true) {
+                            Text("Selecciona la cuenta o tarjeta a la que pertenecen los movimientos. " +
+                                "El formato de archivo no limita el tipo de cuenta.",
+                                style = MaterialTheme.typography.bodySmall)
                             AccountPicker(csvAccount, { csvAccount = it }, visibleAccounts)
-                            Button(onClick = { csvLauncher.launch(arrayOf("application/vnd.ms-excel", "text/*", "application/csv", "application/octet-stream", "*/*")) }) { Text("Elegir cartola CSV o TXT") }
-                            Text("Comprueba que los datos estén correctos antes de confirmar. No se sube el archivo a servidores.", style = MaterialTheme.typography.bodySmall)
-                            Spacer(Modifier.height(18.dp))
-                            Text("Leer PDF de tarjeta de crédito", style = MaterialTheme.typography.titleLarge)
-                            Text("Banco de Chile: consulta cupo utilizado, disponible y total desde el PDF de movimientos no facturados. Solo lectura; no cambia tus saldos.", style = MaterialTheme.typography.bodySmall)
-                            Button(onClick = { cardPdfLauncher.launch(arrayOf("application/pdf")) }) { Text("Elegir PDF de tarjeta") }
+                            Button(onClick = {
+                                csvLauncher.launch(arrayOf("application/pdf",
+                                    "application/vnd.ms-excel", "text/*", "application/csv",
+                                    "application/octet-stream", "*/*"))
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Importar cartola · PDF / XLS / TXT / CSV") }
+                            Text("Los PDF con contraseña piden la clave del archivo. Se reconocen " +
+                                "tablas de movimientos con cargos y abonos (incluida CuentaRUT, " +
+                                "cuando el formato permite identificar las columnas), TXT Banco de Chile, " +
+                                "XLS de débito Falabella y CSV de fecha, descripción y monto.",
+                                style = MaterialTheme.typography.bodySmall)
+                            Text("Los PDF de cupos de tarjetas Banco de Chile se muestran como resumen " +
+                                "informativo. No se importan como cargos de cuenta.",
+                                style = MaterialTheme.typography.bodySmall)
+                            Text("Todo se lee en el teléfono. Revisa la vista previa y la cuenta " +
+                                "antes de confirmar; un archivo ambiguo se rechaza.",
+                                style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.height(18.dp))
                             }
                             Spacer(Modifier.height(12.dp))
