@@ -172,8 +172,8 @@ fun FinanceApp(db: FinanceDatabase) {
     var managingAccounts by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     // Sincronización bajo demanda y al abrir la aplicación, nunca registra cargos sin revisión.
-    LaunchedEffect(Unit) {
-        if (OutlookGraph.enabled(context) && OutlookGraph.isConnected(context)) {
+    LaunchedEffect(unlocked, accountConfigured) {
+        if (unlocked && accountConfigured && OutlookGraph.enabled(context) && OutlookGraph.isConnected(context)) {
             try { OutlookGraph.sync(context, dao) } catch (_: Exception) {
                 // El usuario puede ver el error usando "Buscar avisos ahora" en Ajustes.
             }
