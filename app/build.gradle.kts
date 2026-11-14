@@ -11,7 +11,7 @@ android {
         applicationId = "cl.personal.finanzas"
         minSdk = 26
         targetSdk = 35
-        versionCode = 39
+        versionCode = 40
         versionName = "1.14"
     }
     signingConfigs {
@@ -53,6 +53,7 @@ dependencies {
     implementation("androidx.room:room-runtime:2.8.5")
     implementation("androidx.room:room-ktx:2.8.5")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("com.google.android.gms:play-services-auth:22.0.0")
     // Haze 2.1.0: desenfoque de la barra de navegación en Android 12+.
     implementation("dev.chrisbanes.haze:haze:2.1.0")
     implementation("dev.chrisbanes.haze:haze-blur:2.1.0")
