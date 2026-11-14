@@ -16,6 +16,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.security.KeyStore
 import java.time.LocalDate
+import java.time.LocalTime
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -48,12 +49,26 @@ object OutlookGraph {
     fun accountLast4(context: Context): String = prefs(context).getString("account_last4", "").orEmpty()
     fun cutoffDate(context: Context): String =
         prefs(context).getString("cutoff_date", LocalDate.now().toString()).orEmpty()
+    fun cutoffTime(context: Context): String =
+        prefs(context).getString("cutoff_time", "23:59").orEmpty()
+
+    fun isAfterCutoff(context: Context, candidate: MailCandidate): Boolean {
+        val day = try { LocalDate.parse(candidate.operationDate) } catch (_: Exception) { return false }
+        val cutoff = LocalDate.parse(cutoffDate(context))
+        if (day.isAfter(cutoff)) return true
+        if (day.isBefore(cutoff)) return false
+        val time = ChileBankEmailParser.operationTime(candidate) ?: return false
+        return time.isAfter(LocalTime.parse(cutoffTime(context)))
+    }
+
     fun enabled(context: Context): Boolean = prefs(context).getBoolean("auto_on_open", true)
     fun setEnabled(context: Context, enabled: Boolean) { prefs(context).edit().putBoolean("auto_on_open", enabled).apply() }
-    fun saveSettings(context: Context, clientId: String, suffix: String, cutoff: String): Boolean {
+    fun saveSettings(context: Context, clientId: String, suffix: String, cutoff: String, time: String = cutoffTime(context)): Boolean {
         val id = clientId.trim()
         val last4 = suffix.trim()
         val cutoffParsed = try { LocalDate.parse(cutoff.trim()) } catch (_: Exception) { null }
+        val cutoffClock = try { LocalTime.parse(time.trim()) } catch (_: Exception) { null }
+        if (cutoffClock == null) return false
         if (cutoffParsed == null || cutoffParsed.isAfter(LocalDate.now()) ||
             cutoffParsed.isBefore(LocalDate.now().minusYears(3))) return false
         if (!Regex("""[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}""").matches(id) ||
@@ -65,7 +80,8 @@ object OutlookGraph {
         }
         return prefs(context).edit().putString("client_id", id)
             .putString("account_last4", last4)
-            .putString("cutoff_date", cutoffParsed.toString()).commit()
+            .putString("cutoff_date", cutoffParsed.toString())
+            .putString("cutoff_time", cutoffClock.toString()).commit()
     }
 
     fun isConnected(context: Context): Boolean = try {
@@ -272,7 +288,7 @@ object OutlookGraph {
                     continue
                 }
                 parsedCount++
-                if (!LocalDate.parse(parsed.operationDate).isAfter(cutoff)) {
+                if (!isAfterCutoff(context, parsed)) {
                     excludedByDate++
                     continue
                 }
