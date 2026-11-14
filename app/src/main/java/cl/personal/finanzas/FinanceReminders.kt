@@ -165,7 +165,7 @@ class FinanceReminderWorker(context: Context, params: WorkerParameters) : Corout
         if (!NotificationManagerCompat.from(applicationContext).areNotificationsEnabled()) return Result.success()
 
         val db = Room.databaseBuilder(applicationContext, FinanceDatabase::class.java, "finanzas.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
         val obligation = try { db.financeDao().getObligationById(id) } finally { db.close() }
         if (obligation == null || obligation.paid || obligation.kind != kind ||
