@@ -2,6 +2,7 @@ package cl.personal.finanzas
 
 import android.app.KeyguardManager
 import android.os.Bundle
+import android.os.Build
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -23,6 +24,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
@@ -32,6 +35,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.text.font.FontWeight
@@ -43,7 +49,11 @@ import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
@@ -71,6 +81,11 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import org.json.JSONArray
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.blur.hazeBlur
+import dev.chrisbanes.haze.blur.materials.HazeMaterials
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 
 @Entity(tableName = "movements")
 data class Movement(
@@ -678,56 +693,84 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                 onCancel = { managingAccounts = false }
             )
         } else {
+            val hazeState = rememberHazeState()
             val refreshSnackbar = remember { SnackbarHostState() }
             var refreshingOutlook by remember { mutableStateOf(false) }
             Scaffold(
                 containerColor = FinancePalette.Surface,
                 snackbarHost = { SnackbarHost(hostState = refreshSnackbar) },
                 topBar = {
-                    Surface(modifier = Modifier.fillMaxWidth().background(FinancePalette.Navy).statusBarsPadding(),
-                        color = FinancePalette.Navy) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween) {
-                            Column(Modifier.weight(1f)) {
+                    val logoScale = remember { Animatable(1f) }
+                    var logoTap by remember { mutableIntStateOf(0) }
+                    LaunchedEffect(logoTap) {
+                        if (logoTap > 0) {
+                            logoScale.animateTo(0.97f, spring(stiffness = Spring.StiffnessHigh))
+                            logoScale.animateTo(1f, spring(stiffness = Spring.StiffnessMedium))
+                        }
+                    }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().background(FinancePalette.Navy).statusBarsPadding(),
+                        color = FinancePalette.Navy
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (tab == 4) {
+                                IconButton(onClick = { tab = 0 }) {
+                                    Icon(Icons.Filled.ArrowBack, "Volver a Inicio", tint = Color.White)
+                                }
+                            }
+                            Column(Modifier.weight(1f).graphicsLayer {
+                                scaleX = logoScale.value
+                                scaleY = logoScale.value
+                            }.clickable { logoTap++ }) {
                                 Text("Mis Finanzas", color = Color.White,
                                     style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text("v1.14 · TUS FINANZAS EN ORDEN", color = FinancePalette.Cyan,
+                                // Etiqueta solicitada: queda fija hasta la próxima versión estable.
+                                Text("v1.13 · TUS FINANZAS EN ORDEN", color = FinancePalette.Cyan,
                                     style = MaterialTheme.typography.labelSmall)
                             }
-                            Surface(color = Color.White.copy(alpha = 0.13f),
-                                shape = RoundedCornerShape(12.dp)) {
-                                Text("CLP", Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
+                            Surface(color = Color.White.copy(alpha = 0.14f),
+                                shape = RoundedCornerShape(14.dp)) {
+                                Text("CLP", Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
                                     color = Color.White, style = MaterialTheme.typography.labelLarge)
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            IconButton(onClick = { tab = if (tab == 4) 0 else 4 }) {
+                                Icon(Icons.Filled.Settings, "Abrir Ajustes",
+                                    tint = Color.White, modifier = Modifier.size(24.dp))
                             }
                         }
                     }
                 },
                 bottomBar = {
-                    // Apariencia de vidrio esmerilado ligera, sin capturas de GPU ni
-                    // dependencias de blur incompatibles con Compose de esta versión.
-                    val glassShape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
+                    val glassShape = RoundedCornerShape(26.dp)
+                    val surface = if (Build.VERSION.SDK_INT >= 31) {
+                        Modifier.hazeBlur(
+                            input = HazeInput.Backdrop(hazeState),
+                            style = HazeMaterials.thin()
+                        )
+                    } else {
+                        Modifier.background(Color(0xFFF6F9FE))
+                    }
                     NavigationBar(
                         modifier = Modifier
-                            .shadow(9.dp, glassShape)
+                            .padding(horizontal = 9.dp, vertical = 5.dp)
+                            .shadow(10.dp, glassShape)
                             .clip(glassShape)
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color(0xF9FFFFFF), Color(0xEEF0F7FD))
-                                )
-                            ),
-                        containerColor = Color.Transparent,
+                            .then(surface),
+                        containerColor = if (Build.VERSION.SDK_INT >= 31)
+                            Color.White.copy(alpha = 0.28f) else Color(0xFFF6F9FE),
                         tonalElevation = 0.dp
                     ) {
-                        // El orden visual no altera los IDs de las pantallas existentes.
-                        // Gastos programados tiene navegación propia (ID 5), sin mezclarse con Cuotas (ID 2).
+                        // Solo cinco accesos. Ajustes sigue disponible en el encabezado.
                         val sections = listOf(
                             Triple(0, "Inicio", Icons.Filled.Home),
                             Triple(1, "Movs.", Icons.Filled.AddCircle),
                             Triple(2, "Cuotas", Icons.Filled.CreditCard),
                             Triple(5, "Gastos", Icons.Filled.Event),
-                            Triple(3, "Cobros", Icons.Filled.Payments),
-                            Triple(4, "Ajustes", Icons.Filled.Settings)
+                            Triple(3, "Cobros", Icons.Filled.Payments)
                         )
                         sections.forEach { (sectionId, label, sectionIcon) ->
                             val iconScale by animateFloatAsState(
@@ -739,6 +782,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                                 label = "navbar_icon_$sectionId"
                             )
                             NavigationBarItem(
+                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 4.dp),
                                 selected = tab == sectionId,
                                 onClick = { tab = sectionId },
                                 icon = {
@@ -815,9 +859,17 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                         }
                     }
                 ) {
-                    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)
+                    Column(Modifier.fillMaxSize().hazeSource(state = hazeState).padding(horizontal = 16.dp)
                         .then(if (tab == 4) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
-                    when (tab) {
+                    AnimatedContent(
+                        targetState = tab,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(180)) togetherWith
+                                fadeOut(animationSpec = tween(130))
+                        },
+                        label = "transicion_pestanas"
+                    ) { currentTab ->
+                    when (currentTab) {
                         0 -> Dashboard(movements, obligations, plannedExpenses, openingBalances, visibleAccounts, onNavigate = { tab = it }) { account, amount ->
                             balancePrefs.edit().putLong(account, amount).apply()
                             openingBalances = openingBalances + (account to amount)
@@ -1017,6 +1069,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }) { Text("Restaurar respaldo") }
                             }
                         }
+                    }
                     }
                 }
                 }
