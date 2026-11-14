@@ -39,7 +39,7 @@ fun FinanceSettingsGroup(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically,
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.weight(1f)) {
                     Text(title, style = MaterialTheme.typography.titleMedium,
