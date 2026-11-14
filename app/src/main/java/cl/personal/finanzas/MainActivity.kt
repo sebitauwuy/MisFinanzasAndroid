@@ -82,7 +82,7 @@ data class Obligation(
 interface FinanceDao {
     @Query("SELECT * FROM movements ORDER BY date DESC, id DESC")
     fun movements(): Flow<List<Movement>>
-    @Insert suspend fun insertMovement(value: Movement)
+    @Insert suspend fun insertMovement(value: Movement): Long
     @Delete suspend fun deleteMovement(value: Movement)
     @Query("SELECT * FROM movements ORDER BY id") suspend fun allMovements(): List<Movement>
     @Query("DELETE FROM movements") suspend fun clearMovements()
@@ -95,6 +95,16 @@ interface FinanceDao {
     @Query("SELECT * FROM obligations ORDER BY id") suspend fun allObligations(): List<Obligation>
     @Query("SELECT * FROM obligations WHERE id = :id LIMIT 1") suspend fun getObligationById(id: Long): Obligation?
     @Query("DELETE FROM obligations") suspend fun clearObligations()
+    @Query("SELECT * FROM planned_expenses ORDER BY active DESC, nextDueDate ASC")
+    fun plannedExpenses(): Flow<List<PlannedExpense>>
+    @Query("SELECT * FROM planned_expenses ORDER BY id")
+    suspend fun allPlannedExpenses(): List<PlannedExpense>
+    @Query("SELECT * FROM planned_expenses WHERE id = :id LIMIT 1")
+    suspend fun getPlannedExpense(id: Long): PlannedExpense?
+    @Insert suspend fun insertPlannedExpense(plan: PlannedExpense): Long
+    @Update suspend fun updatePlannedExpense(plan: PlannedExpense)
+    @Delete suspend fun deletePlannedExpense(plan: PlannedExpense)
+    @Query("DELETE FROM planned_expenses") suspend fun clearPlannedExpenses()
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMailCandidate(candidate: MailCandidate): Long
     @Query("SELECT * FROM mail_candidates ORDER BY operationDate DESC, sourceId DESC")
@@ -108,7 +118,7 @@ interface FinanceDao {
     suspend fun markMailCandidate(id: String, status: String)
 }
 
-@Database(entities = [Movement::class, Obligation::class, MailCandidate::class], version = 4, exportSchema = false)
+@Database(entities = [Movement::class, Obligation::class, MailCandidate::class, PlannedExpense::class], version = 5, exportSchema = false)
 abstract class FinanceDatabase : RoomDatabase() {
     abstract fun financeDao(): FinanceDao
 }
@@ -131,6 +141,27 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("""CREATE TABLE IF NOT EXISTS planned_expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            title TEXT NOT NULL,
+            icon TEXT NOT NULL,
+            estimatedAmountClp INTEGER NOT NULL,
+            isVariable INTEGER NOT NULL,
+            frequency TEXT NOT NULL,
+            nextDueDate TEXT NOT NULL,
+            anchorDay INTEGER NOT NULL,
+            defaultAccount TEXT NOT NULL,
+            active INTEGER NOT NULL,
+            lastPaidDate TEXT NOT NULL,
+            lastPaidAmountClp INTEGER NOT NULL,
+            lastPaidWithoutMovement INTEGER NOT NULL,
+            lastPaymentMovementId INTEGER NOT NULL
+        )""")
+    }
+}
+
 private val accounts = AccountCatalog.names
 private val clp = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CL"))
 private fun money(value: Long) = clp.format(value)
@@ -150,7 +181,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         val db = Room.databaseBuilder(applicationContext, FinanceDatabase::class.java, "finanzas.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
             sharedText.value = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
         }
@@ -185,6 +216,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
     }.collectAsState(initial = null)
     val movements = loadedMovements.orEmpty()
     val obligations = loadedObligations.orEmpty()
+    val plannedExpenses by remember(dao) { dao.plannedExpenses() }.collectAsState(initial = emptyList())
     LaunchedEffect(loadedObligations) {
         if (loadedObligations != null) {
             try { FinanceReminderScheduler.reschedule(context, loadedObligations.orEmpty()) }
@@ -626,7 +658,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)
                         .then(if (tab == 4) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
                     when (tab) {
-                        0 -> Dashboard(movements, obligations, openingBalances, visibleAccounts, onNavigate = { tab = it }) { account, amount ->
+                        0 -> Dashboard(movements, obligations, plannedExpenses, openingBalances, visibleAccounts, onNavigate = { tab = it }) { account, amount ->
                             balancePrefs.edit().putLong(account, amount).apply()
                             openingBalances = openingBalances + (account to amount)
                         }
@@ -643,6 +675,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", onSharedTextConsume
                         }
                         2 -> ObligationScreen(obligations.filter { it.kind == "Pago" }, "Pago", dao, scope, visibleAccounts, movements)
                         3 -> ObligationScreen(obligations.filter { it.kind == "Reembolso" }, "Reembolso", dao, scope, visibleAccounts)
+                        5 -> PlannedExpensesScreen(db, plannedExpenses, movements, visibleAccounts) { tab = 0 }
                         else -> {
                             Spacer(Modifier.height(16.dp))
                             FinanceSettingsGroup("Mis cuentas", "Selecciona qué cuentas quieres ver", expandedAtStart = true) {
@@ -831,6 +864,7 @@ private fun hexFinanceColor(value: String): Color? = try {
 fun Dashboard(
     movements: List<Movement>,
     obligations: List<Obligation>,
+    plannedExpenses: List<PlannedExpense>,
     openingBalances: Map<String, Long>,
     visibleAccounts: List<String>,
     onNavigate: (Int) -> Unit,
@@ -1144,6 +1178,40 @@ fun Dashboard(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(Modifier.weight(1f)) { FinanceMetric("Deuda pendiente", money(pending), Color(0xFF7853A6)) }
                 Box(Modifier.weight(1f)) { FinanceMetric("Por cobrar", money(receivable), Color(0xFF236A86)) }
+            }
+        }
+        item {
+            val activePlans = plannedExpenses.filter { it.active }.sortedBy { it.nextDueDate }
+            val dueSoon = activePlans.count {
+                parseDate(it.nextDueDate)?.let { date -> !date.isAfter(today.plusDays(7)) } == true
+            }
+            Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White),
+                modifier = Modifier.fillMaxWidth().border(1.dp, FinancePalette.Border, RoundedCornerShape(20.dp))) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("GASTOS PREVISTOS", style = MaterialTheme.typography.labelLarge,
+                                color = FinancePalette.Navy, fontWeight = FontWeight.Bold)
+                            Text("${activePlans.size} activos · ${dueSoon} vencen en los próximos 7 días",
+                                style = MaterialTheme.typography.bodySmall, color = FinancePalette.Muted)
+                        }
+                        TextButton(onClick = { onNavigate(5) }) { Text("Administrar") }
+                    }
+                    activePlans.take(3).forEach { plan ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text("${plan.icon} ${plan.title}", modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium)
+                            Text(money(plan.estimatedAmountClp), fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    if (activePlans.isEmpty()) {
+                        Text("Agrega luz, agua u otros gastos semanales o mensuales para organizar tu presupuesto.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("Los montos son estimados y no se descuentan hasta que registres un pago.",
+                        style = MaterialTheme.typography.bodySmall, color = FinancePalette.Muted)
+                }
             }
         }
         item {
