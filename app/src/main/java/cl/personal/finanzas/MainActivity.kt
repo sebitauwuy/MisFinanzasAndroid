@@ -775,6 +775,35 @@ fun Dashboard(
             }
         }
         item {
+            Text("Disponible por cuenta", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Desglose de tu saldo registrado. No son saldos bancarios en tiempo real.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            cashAccounts.chunked(2).forEach { pair ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    pair.forEach { account ->
+                        val amount = (openingBalances[account] ?: 0L) +
+                            movementsToDate.filter { it.account == account }.sumOf { it.amountClp }
+                        Card(
+                            modifier = Modifier.weight(1f).padding(bottom = 10.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, FinancePalette.Border)
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                                Text(AccountCatalog.displayName(account), style = MaterialTheme.typography.labelMedium,
+                                    color = FinancePalette.Muted, maxLines = 2)
+                                Spacer(Modifier.height(6.dp))
+                                Text(money(amount), style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold, color = FinancePalette.Navy)
+                            }
+                        }
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+        item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(Modifier.weight(1f)) { FinanceMetric("Ingresos del mes", money(income), Color(0xFF176D47)) }
                 Box(Modifier.weight(1f)) { FinanceMetric("Salidas del mes", money(expenses), Color(0xFFAD4141)) }
