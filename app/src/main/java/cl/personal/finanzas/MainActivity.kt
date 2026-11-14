@@ -915,10 +915,9 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             Color.White.copy(alpha = 0.28f) else Color(0xFFF6F9FE),
                         tonalElevation = 0.dp
                     ) {
-                        // Solo cinco accesos. Ajustes sigue disponible en el encabezado.
+                        // Movimientos se abre desde Inicio; Ajustes, desde el encabezado.
                         val sections = listOf(
                             Triple(0, "Inicio", Icons.Filled.Home),
-                            Triple(1, "Movs.", Icons.Filled.AddCircle),
                             Triple(2, "Cuotas", Icons.Filled.CreditCard),
                             Triple(5, "Gastos", Icons.Filled.Event),
                             Triple(3, "Cobros", Icons.Filled.Payments)

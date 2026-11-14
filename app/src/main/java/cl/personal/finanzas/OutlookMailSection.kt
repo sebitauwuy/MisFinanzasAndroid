@@ -1,11 +1,8 @@
 package cl.personal.finanzas
 
-import android.content.Intent
-import android.net.Uri
+import android.app.Activity
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -24,7 +21,6 @@ fun OutlookMailSection(db: FinanceDatabase) {
     val dao = remember(db) { db.financeDao() }
     val scope = rememberCoroutineScope()
     val mailItems by remember(dao) { dao.mailCandidates() }.collectAsState(initial = emptyList())
-    var applicationId by remember { mutableStateOf(OutlookGraph.clientId(context)) }
     var accountSuffix by remember { mutableStateOf(OutlookGraph.accountLast4(context)) }
     var cutoff by remember { mutableStateOf(OutlookGraph.cutoffDate(context)) }
     var cutoffClock by remember { mutableStateOf(OutlookGraph.cutoffTime(context)) }
@@ -32,7 +28,6 @@ fun OutlookMailSection(db: FinanceDatabase) {
     var connected by remember { mutableStateOf(OutlookGraph.isConnected(context)) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
-    var prompt by remember { mutableStateOf<OutlookDeviceCode?>(null) }
     var overrideCandidate by remember { mutableStateOf<MailCandidate?>(null) }
     var confirmTransfer by remember { mutableStateOf<MailCandidate?>(null) }
     var transferDestination by remember { mutableStateOf("MACH") }
@@ -109,24 +104,6 @@ fun OutlookMailSection(db: FinanceDatabase) {
                 }) { Text("Volver a revisar") }
             },
             dismissButton = { TextButton(onClick = { restoreCandidate = null }) { Text("Cancelar") } }
-        )
-    }
-
-    if (prompt != null) {
-        val code = prompt!!
-        AlertDialog(
-            onDismissRequest = { prompt = null },
-            title = { Text("Autorizar Outlook") },
-            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Abre el sitio oficial de Microsoft e ingresa este código. No lo compartas con otra persona.")
-                Text(code.code, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text(code.verificationUrl, style = MaterialTheme.typography.bodySmall)
-                Text("La aplicación comprobará tu autorización. No ingreses tu contraseña dentro de Mis Finanzas.")
-                Button(onClick = {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(code.verificationUrl)))
-                }) { Text("Abrir Microsoft") }
-            } },
-            confirmButton = { TextButton(onClick = { prompt = null }) { Text("Cerrar") } }
         )
     }
 
@@ -218,14 +195,8 @@ fun OutlookMailSection(db: FinanceDatabase) {
         )
     }
 
-    Text("Conexión experimental: solo lectura de correo, sin claves bancarias. Para usarla hay que registrar Mis Finanzas como aplicación pública en Microsoft y copiar su ID (no es una contraseña).",
+    Text("Conecta una cuenta personal de Outlook o Hotmail. Microsoft solicitará permiso para leer todo tu buzón; la app busca avisos bancarios y no envía ni modifica correos.",
         style = MaterialTheme.typography.bodySmall)
-    OutlinedTextField(
-        value = applicationId, onValueChange = { applicationId = it.trim().take(36) },
-        modifier = Modifier.fillMaxWidth(), singleLine = true,
-        label = { Text("ID público de aplicación Microsoft") },
-        placeholder = { Text("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") }
-    )
     OutlinedTextField(
         value = accountSuffix,
         onValueChange = { accountSuffix = it.filter(Char::isDigit).take(4) },
@@ -242,41 +213,50 @@ fun OutlookMailSection(db: FinanceDatabase) {
     Text("Solo se ofrecerán operaciones posteriores a la fecha y hora indicadas. Si no conocemos la hora de un aviso del mismo día, quedará excluido por seguridad. Comprueba que el saldo inicial no incluya estos movimientos.", style = MaterialTheme.typography.bodySmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(enabled = !busy, onClick = {
-            message = if (OutlookGraph.saveSettings(context, applicationId, accountSuffix, cutoff, cutoffClock))
-                "Configuración guardada" else "Comprueba el ID, los cuatro dígitos y la fecha y hora de corte."
+            val id = if (connected && !OutlookGraph.usesMicrosoftAuth(context)) OutlookGraph.clientId(context) else OutlookGraph.APP_CLIENT_ID
+            message = if (OutlookGraph.saveSettings(context, id, accountSuffix, cutoff, cutoffClock))
+                "Configuración guardada" else "Comprueba los cuatro dígitos y la fecha y hora de corte."
             connected = OutlookGraph.isConnected(context)
         }) { Text("Guardar") }
-        TextButton(onClick = {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://entra.microsoft.com/")))
-        }) { Text("Registro Microsoft") }
     }
     Text(if (connected) "Outlook autorizado en este dispositivo" else "Outlook sin conectar",
         color = if (connected) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant)
 
     if (!connected) {
         Button(enabled = !busy, onClick = {
-            if (!OutlookGraph.saveSettings(context, applicationId, accountSuffix, cutoff)) {
-                message = "Primero ingresa el ID de aplicación, los cuatro dígitos de tu cuenta y la fecha y hora del saldo ya conciliado."
+            if (!OutlookGraph.saveSettings(context, OutlookGraph.APP_CLIENT_ID, accountSuffix, cutoff, cutoffClock)) {
+                message = "Comprueba los cuatro dígitos de tu cuenta y la fecha y hora del saldo ya conciliado."
             } else {
                 busy = true
-                message = "Solicitando código a Microsoft…"
+                message = "Abriendo Microsoft…"
                 scope.launch {
                     try {
-                        val code = OutlookGraph.beginLogin(context)
-                        prompt = code
-                        message = "Autoriza el acceso en Microsoft con el código que se muestra."
-                        OutlookGraph.awaitLogin(context, code)
+                        val activity = context as? Activity ?: error("No se pudo abrir el inicio de sesión")
+                        OutlookMicrosoftAuth.signIn(activity)
+                        OutlookGraph.markMicrosoftConnected(context)
                         connected = true
-                        prompt = null
                         message = "Outlook conectado. Ya puedes buscar avisos bancarios."
                     } catch (e: Exception) {
                         message = "No fue posible conectar: ${e.message}"
-                        prompt = null
                     } finally { busy = false }
                 }
             }
         }) { Text(if (busy) "Conectando…" else "Conectar Outlook / Hotmail") }
     } else {
+        if (OutlookGraph.usesMicrosoftAuth(context)) {
+            TextButton(enabled = !busy, onClick = {
+                busy = true
+                scope.launch {
+                    try {
+                        val activity = context as? Activity ?: error("No se pudo abrir el inicio de sesión")
+                        OutlookMicrosoftAuth.signIn(activity)
+                        message = "Outlook autorizado. Ya puedes buscar avisos bancarios."
+                    } catch (e: Exception) {
+                        message = "No se pudo autorizar Outlook: ${e.message}"
+                    } finally { busy = false }
+                }
+            }) { Text("Volver a autorizar") }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Button(enabled = !busy, onClick = {
                 busy = true
@@ -288,11 +268,18 @@ fun OutlookMailSection(db: FinanceDatabase) {
                     finally { busy = false }
                 }
             }) { Text(if (busy) "Sincronizando…" else "Buscar avisos ahora") }
-            TextButton(onClick = {
-                OutlookGraph.forget(context)
-                connected = false
-                prompt = null
-                message = "Sesión local desconectada; los movimientos ya registrados permanecen."
+            TextButton(enabled = !busy, onClick = {
+                busy = true
+                scope.launch {
+                    try {
+                        if (OutlookGraph.usesMicrosoftAuth(context)) OutlookMicrosoftAuth.signOut(context)
+                        OutlookGraph.forget(context)
+                        connected = false
+                        message = "Sesión local desconectada; los movimientos ya registrados permanecen."
+                    } catch (e: Exception) {
+                        message = "No se pudo desconectar: ${e.message}"
+                    } finally { busy = false }
+                }
             }) { Text("Desconectar") }
         }
     }
@@ -345,3 +332,4 @@ fun OutlookMailSection(db: FinanceDatabase) {
         }
     }
 }
+
