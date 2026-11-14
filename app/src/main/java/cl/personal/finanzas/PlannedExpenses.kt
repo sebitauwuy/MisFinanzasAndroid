@@ -380,6 +380,11 @@ fun PlannedExpensesScreen(
                         paymentConfirmDuplicate = true
                         return@TextButton
                     }
+                    val accountToPay = paymentAccount
+                    val amountToPay = actual!!
+                    val paidOn = paymentDate
+                    val alreadyRecorded = paymentExisting
+                    val duplicateAllowed = paymentConfirmDuplicate
                     working = true
                     scope.launch {
                         try {
@@ -390,13 +395,13 @@ fun PlannedExpensesScreen(
                                     fresh.isVariable == plan.isVariable) {
                                     "Este vencimiento ya fue procesado o modificado."
                                 }
-                                if (!paymentExisting && !paymentConfirmDuplicate) {
+                                if (!alreadyRecorded && !duplicateAllowed) {
                                     val duplicateNow = dao.allMovements().any { movement ->
-                                        movement.account == paymentAccount &&
-                                            movement.amountClp == -(actual!!) &&
+                                        movement.account == accountToPay &&
+                                            movement.amountClp == -amountToPay &&
                                             runCatching {
                                                 kotlin.math.abs(ChronoUnit.DAYS.between(
-                                                    LocalDate.parse(movement.date), LocalDate.parse(paymentDate)
+                                                    LocalDate.parse(movement.date), LocalDate.parse(paidOn)
                                                 )) <= 1L
                                             }.getOrDefault(false)
                                     }
@@ -404,23 +409,23 @@ fun PlannedExpensesScreen(
                                         "Se encontró un posible duplicado al guardar. Vuelve a abrir el pago y confirma si corresponde."
                                     }
                                 }
-                                val movementId = if (!paymentExisting) {
+                                val movementId = if (!alreadyRecorded) {
                                     dao.insertMovement(Movement(
-                                        account = paymentAccount, description = "${fresh.icon} ${fresh.title}",
-                                        amountClp = -(actual!!), date = paymentDate,
+                                        account = accountToPay, description = "${fresh.icon} ${fresh.title}",
+                                        amountClp = -amountToPay, date = paidOn,
                                         category = "Gasto previsto"
                                     ))
                                 } else 0L
                                 dao.updatePlannedExpense(fresh.copy(
                                     nextDueDate = PlannedExpenseRules.nextDueAfterPayment(fresh, today).toString(),
-                                    lastPaidDate = paymentDate, lastPaidAmountClp = actual!!,
-                                    lastPaidWithoutMovement = paymentExisting,
+                                    lastPaidDate = paidOn, lastPaidAmountClp = amountToPay,
+                                    lastPaidWithoutMovement = alreadyRecorded,
                                     lastPaymentMovementId = movementId
                                 ))
                             }
                             paymentPlan = null
-                            feedback = if (paymentExisting) "Marcado como pagado, sin descontar otra vez."
-                                else "Pago registrado y descontado de ${AccountCatalog.displayName(paymentAccount)}."
+                            feedback = if (alreadyRecorded) "Marcado como pagado, sin descontar otra vez."
+                                else "Pago registrado y descontado de ${AccountCatalog.displayName(accountToPay)}."
                         } catch (e: Exception) {
                             feedback = "No se pudo guardar el pago: ${e.message}"
                         } finally { working = false }
