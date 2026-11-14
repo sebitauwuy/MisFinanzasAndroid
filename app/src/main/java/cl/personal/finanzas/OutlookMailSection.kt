@@ -280,7 +280,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
                 scope.launch {
                     try {
                         val result = OutlookGraph.sync(context, dao)
-                        message = "Revisados ${result.scanned} · remitentes Banco de Chile ${result.bankSender} · reconocidos ${result.parsed} · excluidos por fecha ${result.excludedByDate} · formatos no reconocidos ${result.unrecognized} · nuevos ${result.queued} · posibles duplicados ${result.possibleDuplicates}"
+                        message = "Revisados ${result.scanned} · remitentes Banco de Chile/BancoEstado ${result.bankSender} · reconocidos ${result.parsed} · excluidos por fecha ${result.excludedByDate} · formatos no reconocidos ${result.unrecognized} · nuevos ${result.queued} · posibles duplicados ${result.possibleDuplicates}"
                     } catch (e: Exception) { message = "Error de sincronización: ${e.message}" }
                     finally { busy = false }
                 }
@@ -297,7 +297,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
         Text("Buscar correos al abrir la app", modifier = Modifier.weight(1f))
         Switch(checked = autoSync, onCheckedChange = { autoSync = it; OutlookGraph.setEnabled(context, it) })
     }
-    Text("Solo se detectan avisos de remitentes conocidos de Banco de Chile y de la cuenta indicada. Nunca se registran automáticamente. La lectura inicial revisa hasta 30 días de correo; no equivale a un saldo bancario en vivo.",
+    Text("Busca avisos de Banco de Chile y transferencias enviadas desde CuentaRUT BancoEstado. Solo se interpretan los datos legibles como texto en el correo; comprobantes formados únicamente por imágenes requieren soporte adicional. Todo queda pendiente de revisión, sin importar movimientos automáticamente. La búsqueda abarca hasta 30 días desde la fecha de corte configurada; no equivale a un saldo bancario en vivo.",
         style = MaterialTheme.typography.bodySmall)
     if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
 
