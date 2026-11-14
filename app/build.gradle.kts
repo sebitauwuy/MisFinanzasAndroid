@@ -2,7 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("org.jetbrains.kotlin.kapt")
+    id("com.google.devtools.ksp")
 }
 android {
     namespace = "cl.personal.finanzas"
@@ -59,5 +59,5 @@ dependencies {
     implementation("dev.chrisbanes.haze:haze-blur-materials:2.1.0")
     // Vico: gráfico semanal de gastos.
     implementation("com.patrykandpatrick.vico:compose:3.3.1")
-    kapt("androidx.room:room-compiler:2.8.5")
+    ksp("androidx.room:room-compiler:2.8.5")
 }
