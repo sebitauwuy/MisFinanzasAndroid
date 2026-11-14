@@ -551,7 +551,17 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                 scope.launch {
                     try {
                         db.withTransaction {
-                            if (account == null) dao.clearMovements() else dao.clearAccountMovements(account)
+                            val ids = dao.allMovements().filter {
+                                account == null || it.account == account
+                            }.map { it.id }.toSet()
+                            require(dao.allPlannedExpenseLinks().none { it.movementId in ids } &&
+                                dao.allPlannedExpenses().none {
+                                    it.lastPaymentMovementId != 0L && it.lastPaymentMovementId in ids
+                                }) {
+                                "Hay gastos programados vinculados. Desvincúlalos desde Movs. antes de borrar."
+                            }
+                            if (account == null) dao.clearMovements()
+                            else dao.clearAccountMovements(account)
                         }
                         val selected = if (account == null) accounts else listOf(account)
                         val editor = balancePrefs.edit()
@@ -1713,7 +1723,8 @@ fun MovementScreen(
                                         color = MaterialTheme.colorScheme.tertiary)
                                 }
                                 if (m.amountClp < 0L &&
-                                    m.category !in listOf("Transferencia interna", "Traspaso interno")) {
+                                    m.category !in listOf("Transferencia interna", "Traspaso interno", "Gasto previsto",
+                                        "Pago tarjeta", "Pago de tarjeta", "Abono tarjeta")) {
                                     TextButton(onClick = { movementForPlan = m }) {
                                         Text(if (link != null || legacy != null)
                                             "Ver gasto pagado" else "✓ Asociar gasto")
