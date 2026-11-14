@@ -222,7 +222,10 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
     }.collectAsState(initial = null)
     val movements = loadedMovements.orEmpty()
     val obligations = loadedObligations.orEmpty()
-    val plannedExpenses by remember(dao) { dao.plannedExpenses() }.collectAsState(initial = emptyList())
+    val loadedPlannedExpenses by remember(dao) {
+        dao.plannedExpenses().map<List<PlannedExpense>, List<PlannedExpense>?> { it }
+    }.collectAsState(initial = null)
+    val plannedExpenses = loadedPlannedExpenses.orEmpty()
     LaunchedEffect(loadedObligations) {
         if (loadedObligations != null) {
             try { FinanceReminderScheduler.reschedule(context, loadedObligations.orEmpty()) }
@@ -233,11 +236,20 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
     var duePaymentPrompt by remember { mutableStateOf<DuePaymentNudge?>(null) }
     var promptedForegroundEvent by remember { mutableIntStateOf(-1) }
     var requestedPlannedPaymentId by remember { mutableStateOf<Long?>(null) }
-    LaunchedEffect(foregroundEvent, unlocked, accountConfigured, loadedObligations, plannedExpenses) {
+    var showEmailImporter by remember { mutableStateOf(false) }
+    LaunchedEffect(sharedText) {
+        if (sharedText.isNotBlank()) { tab = 1; showEmailImporter = true }
+    }
+    val balancePrefs = remember { context.getSharedPreferences("opening_balances", 0) }
+    var openingBalances by remember { mutableStateOf(accounts.associateWith { balancePrefs.getLong(it, 0L) }) }
+    var accountConfigured by remember { mutableStateOf(AccountCatalog.isConfigured(context)) }
+    var visibleAccounts by remember { mutableStateOf(AccountCatalog.selected(context)) }
+    var managingAccounts by remember { mutableStateOf(false) }
+    LaunchedEffect(foregroundEvent, unlocked, accountConfigured, loadedObligations, loadedPlannedExpenses) {
         // Solo se pregunta una vez por entrada a la app, después de las 17:00.
         // La actualización de Room o la navegación no vuelven a abrir el diálogo.
         if (foregroundEvent > 0 && promptedForegroundEvent != foregroundEvent &&
-            unlocked && accountConfigured && loadedObligations != null &&
+            unlocked && accountConfigured && loadedObligations != null && loadedPlannedExpenses != null &&
             FinanceReminderSettings.askOnOpeningAfterFive(context) &&
             java.time.LocalTime.now().hour >= 17) {
             val today = LocalDate.now()
@@ -263,15 +275,6 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
             }
         }
     }
-    var showEmailImporter by remember { mutableStateOf(false) }
-    LaunchedEffect(sharedText) {
-        if (sharedText.isNotBlank()) { tab = 1; showEmailImporter = true }
-    }
-    val balancePrefs = remember { context.getSharedPreferences("opening_balances", 0) }
-    var openingBalances by remember { mutableStateOf(accounts.associateWith { balancePrefs.getLong(it, 0L) }) }
-    var accountConfigured by remember { mutableStateOf(AccountCatalog.isConfigured(context)) }
-    var visibleAccounts by remember { mutableStateOf(AccountCatalog.selected(context)) }
-    var managingAccounts by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     // Sincronización bajo demanda y al abrir la aplicación, nunca registra cargos sin revisión.
     LaunchedEffect(unlocked, accountConfigured) {
@@ -590,7 +593,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                 Spacer(Modifier.height(16.dp))
                 Button(onClick = requestUnlock) { Text("Desbloquear") }
             }
-        } else if (loadedMovements == null || loadedObligations == null) {
+        } else if (loadedMovements == null || loadedObligations == null || loadedPlannedExpenses == null) {
             Box(Modifier.fillMaxSize().statusBarsPadding(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else if (!accountConfigured || managingAccounts) {
             AccountSelectionScreen(
