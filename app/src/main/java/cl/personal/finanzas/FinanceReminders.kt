@@ -273,24 +273,23 @@ fun FinanceReminderSettingsSection(obligations: List<Obligation>) {
                             if (kind == "Reembolso") cobrosOn = it else creditosOn = it
                         })
                     }
-                    OutlinedTextField(
-                        value = if (kind == "Reembolso") cobrosDays else creditosDays,
-                        onValueChange = {
-                            val digits = it.filter(Char::isDigit).take(2)
-                            if (kind == "Reembolso") cobrosDays = digits else creditosDays = digits
-                        },
-                        label = { Text("Días antes (0 a 30)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(), singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = if (kind == "Reembolso") cobrosTime else creditosTime,
-                        onValueChange = {
-                            if (kind == "Reembolso") cobrosTime = it.take(5) else creditosTime = it.take(5)
-                        },
-                        label = { Text("Hora del aviso (HH:mm)") }, placeholder = { Text("15:00") },
-                        modifier = Modifier.fillMaxWidth(), singleLine = true
-                    )
+                    val selectedDays = if (kind == "Reembolso") cobrosDays.toIntOrNull() ?: 1
+                        else creditosDays.toIntOrNull() ?: 1
+                    Text("Anticipación: ${if (selectedDays == 0) "el mismo día" else "$selectedDays día(s) antes"}")
+                    Slider(value = selectedDays.toFloat(), valueRange = 0f..30f, steps = 29,
+                        onValueChange = { newValue ->
+                            val days = newValue.toInt().coerceIn(0, 30).toString()
+                            if (kind == "Reembolso") cobrosDays = days else creditosDays = days
+                        })
+                    val selectedTime = if (kind == "Reembolso") cobrosTime else creditosTime
+                    OutlinedButton(onClick = {
+                        val time = runCatching { LocalTime.parse(selectedTime) }
+                            .getOrDefault(LocalTime.of(15, 0))
+                        android.app.TimePickerDialog(context, { _, hour, minute ->
+                            val formatted = "%02d:%02d".format(Locale.ROOT, hour, minute)
+                            if (kind == "Reembolso") cobrosTime = formatted else creditosTime = formatted
+                        }, time.hour, time.minute, true).show()
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Hora del aviso: $selectedTime") }
                 }
             }
         }
