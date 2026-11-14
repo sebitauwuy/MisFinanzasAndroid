@@ -82,7 +82,9 @@ fun PlannedExpensesScreen(
     plans: List<PlannedExpense>,
     movements: List<Movement>,
     visibleAccounts: List<String>,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    requestedPaymentId: Long? = null,
+    onPaymentRequestConsumed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val dao = remember(db) { db.financeDao() }
@@ -130,6 +132,14 @@ fun PlannedExpensesScreen(
         paymentDate = today.toString()
         paymentExisting = false
         paymentConfirmDuplicate = false
+    }
+
+    LaunchedEffect(requestedPaymentId, plans) {
+        val id = requestedPaymentId
+        if (id != null) {
+            plans.firstOrNull { it.id == id && it.active }?.let(::startPayment)
+            onPaymentRequestConsumed()
+        }
     }
 
     val activePlans = plans.filter { it.active }.sortedBy { it.nextDueDate }
