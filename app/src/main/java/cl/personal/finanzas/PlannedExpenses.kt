@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.withTransaction
@@ -44,7 +45,7 @@ data class PlannedExpense(
     val lastPaidAmountClp: Long = 0L,
     val lastPaidWithoutMovement: Boolean = false,
     val lastPaymentMovementId: Long = 0L,
-    val category: String = "General"
+    @ColumnInfo(defaultValue = "'General'") val category: String = "General"
 )
 
 object PlannedExpenseRules {
