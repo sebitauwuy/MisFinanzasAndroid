@@ -61,6 +61,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.DayOfWeek
@@ -236,6 +238,12 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
     }.collectAsState(initial = null)
     val movements = loadedMovements.orEmpty()
     val obligations = loadedObligations.orEmpty()
+    // Las alertas no crean movimientos: solo comparan el gasto del mes con los límites guardados.
+    LaunchedEffect(loadedMovements, unlocked) {
+        if (unlocked && loadedMovements != null) {
+            withContext(Dispatchers.IO) { CategoryBudgetAlerts.check(context, movements) }
+        }
+    }
     val loadedPlannedExpenses by remember(dao) {
         dao.plannedExpenses().map<List<PlannedExpense>, List<PlannedExpense>?> { it }
     }.collectAsState(initial = null)
@@ -780,6 +788,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                         }
                         2 -> ObligationScreen(obligations.filter { it.kind == "Pago" }, "Pago", dao, scope, visibleAccounts, movements)
                         3 -> ObligationScreen(obligations.filter { it.kind == "Reembolso" }, "Reembolso", dao, scope, visibleAccounts)
+                        6 -> CategoryInsightsScreen(movements) { tab = 0 }
                         5 -> PlannedExpensesScreen(
                             db = db,
                             plans = plannedExpenses,
@@ -1362,6 +1371,40 @@ fun Dashboard(
                     }
                     Text("Los montos son estimados y no se descuentan hasta que registres un pago.",
                         style = MaterialTheme.typography.bodySmall, color = FinancePalette.Muted)
+                }
+            }
+        }
+        item {
+            val usedByCategory = CategoryBudgetStore.spending(movements, month)
+                .entries.sortedByDescending { it.value }.take(3)
+            Card(shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                modifier = Modifier.fillMaxWidth().border(1.dp, FinancePalette.Border, RoundedCornerShape(20.dp))) {
+                Column(Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("ANÁLISIS DE GASTOS", fontWeight = FontWeight.Bold,
+                                color = FinancePalette.Navy,
+                                style = MaterialTheme.typography.labelLarge)
+                            Text("Gastos por categoría y presupuestos mensuales",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                        TextButton(onClick = { onNavigate(6) }) { Text("Ver gráficos") }
+                    }
+                    if (usedByCategory.isEmpty()) {
+                        Text("Los gráficos aparecerán cuando registres gastos.",
+                            style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        usedByCategory.forEach { category ->
+                            Row(horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(category.key, modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                                Text(money(category.value), style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
         }
