@@ -163,7 +163,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
                 scope.launch {
                     try {
                         val result = OutlookGraph.sync(context, dao)
-                        message = "Revisados ${result.scanned} correos · nuevos ${result.queued} · posibles duplicados ${result.possibleDuplicates}"
+                        message = "Revisados ${result.scanned} · remitentes Banco de Chile ${result.bankSender} · reconocidos ${result.parsed} · excluidos por fecha ${result.excludedByDate} · formatos no reconocidos ${result.unrecognized} · nuevos ${result.queued} · posibles duplicados ${result.possibleDuplicates}"
                     } catch (e: Exception) { message = "Error de sincronización: ${e.message}" }
                     finally { busy = false }
                 }
