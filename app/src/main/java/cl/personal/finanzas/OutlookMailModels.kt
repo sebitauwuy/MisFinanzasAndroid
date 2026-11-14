@@ -89,10 +89,15 @@ object ChileBankEmailParser {
     }
 
     fun parse(message: JSONObject, accountLast4: String): MailCandidate? {
-        if (!Regex("""\d{4}""").matches(accountLast4)) return null
         val address = message.optJSONObject("sender")?.optJSONObject("emailAddress")?.optString("address")
             ?: message.optJSONObject("from")?.optJSONObject("emailAddress")?.optString("address")
             ?: return null
+        // La cuenta BancoEstado tiene su propio formato; no usar los cuatro dígitos
+        // configurados para Banco de Chile como identidad de una cuenta distinta.
+        if (BancoEstadoEmailParser.isSupportedSender(address)) {
+            return BancoEstadoEmailParser.parse(message)
+        }
+        if (!Regex("""\d{4}""").matches(accountLast4)) return null
         // Filtro conservador: el nombre del remitente no es suficiente.
         if (address.lowercase(Locale.ROOT) !in setOf(
                 "enviodigital@bancochile.cl",
