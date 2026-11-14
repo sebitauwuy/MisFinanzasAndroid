@@ -27,6 +27,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
     var applicationId by remember { mutableStateOf(OutlookGraph.clientId(context)) }
     var accountSuffix by remember { mutableStateOf(OutlookGraph.accountLast4(context)) }
     var cutoff by remember { mutableStateOf(OutlookGraph.cutoffDate(context)) }
+    var cutoffClock by remember { mutableStateOf(OutlookGraph.cutoffTime(context)) }
     var autoSync by remember { mutableStateOf(OutlookGraph.enabled(context)) }
     var connected by remember { mutableStateOf(OutlookGraph.isConnected(context)) }
     var busy by remember { mutableStateOf(false) }
@@ -43,7 +44,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
                 db.withTransaction {
                     val fresh = dao.getMailCandidate(candidate.sourceId) ?: return@withTransaction
                     if (fresh.status != "PENDIENTE" && fresh.status != "POSIBLE_DUPLICADO") return@withTransaction
-                    if (!java.time.LocalDate.parse(fresh.operationDate).isAfter(java.time.LocalDate.parse(OutlookGraph.cutoffDate(context)))) {
+                    if (!OutlookGraph.isAfterCutoff(context, fresh)) {
                         blockedByCutoff = true
                         return@withTransaction
                     }
@@ -124,11 +125,17 @@ fun OutlookMailSection(db: FinanceDatabase) {
         modifier = Modifier.fillMaxWidth(), singleLine = true,
         label = { Text("Fecha del saldo ya conciliado (AAAA-MM-DD)") }
     )
-    Text("Solo se ofrecerán operaciones posteriores a esta fecha. Usa el día en que tu saldo bancario ya incluía los movimientos anteriores.", style = MaterialTheme.typography.bodySmall)
+    OutlinedTextField(
+        value = cutoffClock, onValueChange = { cutoffClock = it.take(5) },
+        modifier = Modifier.fillMaxWidth(), singleLine = true,
+        label = { Text("Hora del saldo conciliado (HH:mm, 24 horas)") },
+        placeholder = { Text("19:50") }
+    )
+    Text("Solo se ofrecerán operaciones posteriores a la fecha y hora indicadas. Si no conocemos la hora de un aviso del mismo día, quedará excluido por seguridad. Comprueba que el saldo inicial no incluya estos movimientos.", style = MaterialTheme.typography.bodySmall)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(enabled = !busy, onClick = {
-            message = if (OutlookGraph.saveSettings(context, applicationId, accountSuffix, cutoff))
-                "Configuración guardada" else "Comprueba el ID, los cuatro dígitos y la fecha de corte."
+            message = if (OutlookGraph.saveSettings(context, applicationId, accountSuffix, cutoff, cutoffClock))
+                "Configuración guardada" else "Comprueba el ID, los cuatro dígitos y la fecha y hora de corte."
             connected = OutlookGraph.isConnected(context)
         }) { Text("Guardar") }
         TextButton(onClick = {
@@ -141,7 +148,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
     if (!connected) {
         Button(enabled = !busy, onClick = {
             if (!OutlookGraph.saveSettings(context, applicationId, accountSuffix, cutoff)) {
-                message = "Primero ingresa el ID de aplicación, los cuatro dígitos de tu cuenta y la fecha del saldo ya conciliado."
+                message = "Primero ingresa el ID de aplicación, los cuatro dígitos de tu cuenta y la fecha y hora del saldo ya conciliado."
             } else {
                 busy = true
                 message = "Solicitando código a Microsoft…"
