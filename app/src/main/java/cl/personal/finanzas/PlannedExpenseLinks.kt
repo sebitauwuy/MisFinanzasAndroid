@@ -138,7 +138,26 @@ fun LinkPlannedExpenseDialog(
             }
         },
         confirmButton = {
-            if (knownLink != null && linkedPlan != null) {
+            if (knownLink != null && linkedPlan == null) {
+                TextButton(enabled = !busy, onClick = {
+                    busy = true
+                    scope.launch {
+                        try {
+                            db.withTransaction {
+                                val link = dao.getPlannedExpenseLink(movement.id)
+                                    ?: error("La asociación ya no existe.")
+                                require(dao.getPlannedExpense(link.planId) == null) {
+                                    "El gasto programado cambió. Vuelve a abrir el historial."
+                                }
+                                dao.deletePlannedExpenseLink(link)
+                            }
+                            onDismiss()
+                        } catch (e: Exception) {
+                            feedback = "No se pudo quitar la asociación: " + e.message
+                        } finally { busy = false }
+                    }
+                }) { Text("Quitar asociación antigua") }
+            } else if (knownLink != null && linkedPlan != null) {
                 TextButton(enabled = !busy, onClick = {
                     busy = true
                     scope.launch {
