@@ -784,7 +784,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             val outlookLinked = OutlookGraph.isConnected(context)
                             val outlookSynced = OutlookGraph.lastSuccessfulSyncMs(context) > 0L
                             Text(if (outlookLinked)
-                                "Banco de Chile: conexión mediante Outlook / Microsoft Graph. No es una API bancaria."
+                                "Outlook autorizado para buscar avisos de Banco de Chile y BancoEstado. No es una conexión directa a los bancos."
                             else "Sin conexiones bancarias autorizadas actualmente.",
                                 style = MaterialTheme.typography.bodySmall)
                             Spacer(Modifier.height(8.dp))
@@ -798,6 +798,18 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = MaterialTheme.colorScheme.tertiary)
                                             Text("Lee avisos de compras y transferencias. No consulta el saldo bancario ni importa automáticamente movimientos sin revisión.",
+                                                style = MaterialTheme.typography.labelSmall)
+                                        } else if (bank == "BancoEstado" && outlookLinked) {
+                                            Text(
+                                                if (OutlookGraph.bancoEstadoReceiptsSeen(context))
+                                                    "Avisos de transferencia reconocidos mediante correo (Outlook)"
+                                                else if (outlookSynced)
+                                                    "Outlook conectado · Sin TEF de BancoEstado identificadas todavía"
+                                                else "Outlook autorizado · Pendiente primera búsqueda",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.tertiary
+                                            )
+                                            Text("Busca comprobantes de transferencias enviadas desde CuentaRUT. Las operaciones quedan para revisión; no consulta saldos ni es una API de BancoEstado. Comprobantes solo en imagen todavía no se interpretan.",
                                                 style = MaterialTheme.typography.labelSmall)
                                         } else {
                                             Text("Sin conexión directa · Los movimientos siguen siendo manuales",
