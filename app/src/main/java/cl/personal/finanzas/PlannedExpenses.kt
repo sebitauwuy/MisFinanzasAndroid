@@ -3,6 +3,8 @@ package cl.personal.finanzas
 import android.app.DatePickerDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -238,7 +240,7 @@ fun PlannedExpensesScreen(
                     OutlinedTextField(title, { title = it.take(100) }, label = { Text("Nombre (ej. Luz, Agua, aporte)") },
                         modifier = Modifier.fillMaxWidth(), singleLine = true)
                     Text("Ícono", style = MaterialTheme.typography.labelLarge)
-                    PlannedExpenseRules.icons.chunked(6).forEach { icons ->
+                    PlannedExpenseRules.icons.chunked(4).forEach { icons ->
                         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                             icons.forEach { option ->
                                 FilterChip(selected = icon == option, onClick = { icon = option },
