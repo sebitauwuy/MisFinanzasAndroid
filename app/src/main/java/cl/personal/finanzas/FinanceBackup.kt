@@ -14,7 +14,7 @@ object FinanceBackup {
         val movements = db.financeDao().allMovements()
         val obligations = db.financeDao().allObligations()
         val mail = db.financeDao().allMailCandidates()
-        val root = JSONObject().put("format", "mis-finanzas").put("version", 11)
+        val root = JSONObject().put("format", "mis-finanzas").put("version", 12)
         val ms = JSONArray()
         movements.forEach { m ->
             ms.put(JSONObject().put("id",m.id).put("account",m.account).put("description",m.description)
@@ -68,6 +68,7 @@ object FinanceBackup {
         root.put("creditLimits", CreditLimitStore.export(context))
         root.put("categoryBudgets", CategoryBudgetStore.export(context))
         root.put("expenseCategories", ExpenseCategories.export(context))
+        root.put("merchantAliases", MerchantAliases.export(context))
         root.put("widgetPreferences", JSONObject().put("showDetails", PaymentDueWidgetSettings.showDetails(context)))
         root.put("reminderSettings", FinanceReminderSettings.export(context))
         val dashboardPrefs = context.getSharedPreferences("dashboard_account_cards", Context.MODE_PRIVATE)
@@ -101,7 +102,7 @@ object FinanceBackup {
         val raw = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         require(raw.length < 10_000_000) { "Respaldo demasiado grande" }
         val root = JSONObject(raw)
-        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..11) { "Formato de respaldo no reconocido" }
+        require(root.optString("format") == "mis-finanzas" && root.optInt("version") in 1..12) { "Formato de respaldo no reconocido" }
         val ms = root.getJSONArray("movements")
         val os = root.getJSONArray("obligations")
         require(ms.length() <= 10000 && os.length() <= 10000) { "Demasiados registros" }
@@ -209,6 +210,11 @@ object FinanceBackup {
             "Faltan las subcategorías en el respaldo"
         }
         if (expenseCategoryArray != null) ExpenseCategories.validateImport(expenseCategoryArray)
+        val aliasArray = root.optJSONObject("merchantAliases")
+        if (root.optInt("version") >= 12) require(aliasArray != null) {
+            "Faltan los nombres personalizados del respaldo"
+        }
+        if (aliasArray != null) MerchantAliases.validate(aliasArray)
         val opening = root.optJSONObject("openingBalances")
         val billing = root.optJSONObject("billingCycles")
         val savedVisibility = if (root.optInt("version") >= 3) {
@@ -298,6 +304,9 @@ object FinanceBackup {
         if (budgetArray != null) require(CategoryBudgetStore.restore(context, budgetArray)) { "No se pudieron recuperar los presupuestos" }
         if (expenseCategoryArray != null) require(ExpenseCategories.restore(context, expenseCategoryArray)) {
             "No se pudieron recuperar las subcategorías"
+        }
+        if (aliasArray != null) require(MerchantAliases.restore(context, aliasArray)) {
+            "No se pudieron restaurar los nombres de comercios"
         }
         if (widgetPreferences != null) require(
             PaymentDueWidgetSettings.setShowDetails(context, widgetPreferences.getBoolean("showDetails"))
