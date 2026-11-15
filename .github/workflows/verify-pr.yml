@@ -21,5 +21,7 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.0.0"
+      - name: Probar lector de correos bancarios
+        run: gradle --no-daemon :app:testDebugUnitTest
       - name: Compilar APK de prueba (sin firma de publicación)
         run: gradle --no-daemon :app:assembleDebug
