@@ -11,7 +11,7 @@ android {
         applicationId = "cl.personal.finanzas"
         minSdk = 26
         targetSdk = 35
-        versionCode = 46
+        versionCode = 47
         versionName = "1.14"
     }
     signingConfigs {
@@ -61,5 +61,6 @@ dependencies {
     // Vico: gráfico semanal de gastos.
     implementation("com.patrykandpatrick.vico:compose:3.3.1")
     implementation("com.patrykandpatrick.vico:compose-m3:3.3.1")
+    testImplementation("junit:junit:4.13.2")
     ksp("androidx.room:room-compiler:2.8.5")
 }
