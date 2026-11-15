@@ -2064,6 +2064,62 @@ fun MovementScreen(
     var deletionWarning by remember { mutableStateOf("") }
     var categorizingMovement by remember { mutableStateOf<Movement?>(null) }
     var categoryForEdit by remember { mutableStateOf("General") }
+    var editingDescription by remember { mutableStateOf<Movement?>(null) }
+    var descriptionForEdit by remember { mutableStateOf("") }
+    var descriptionUpdateBusy by remember { mutableStateOf(false) }
+    var saveMovementBusy by remember { mutableStateOf(false) }
+    var movementSaveFeedback by remember { mutableStateOf("") }
+    if (editingDescription != null) {
+        val existing = editingDescription!!
+        AlertDialog(
+            onDismissRequest = { if (!descriptionUpdateBusy) editingDescription = null },
+            title = { Text("Editar descripción") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text("${AccountCatalog.displayName(existing.account)} · ${dateForDisplay(existing.date)} · ${money(existing.amountClp)}",
+                        style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(
+                        value = descriptionForEdit,
+                        onValueChange = { descriptionForEdit = it.take(200) },
+                        label = { Text("Descripción del movimiento") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Solo cambiará el texto. El monto, la fecha, la cuenta y las asociaciones se mantienen.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !descriptionUpdateBusy && descriptionForEdit.trim().isNotEmpty(),
+                    onClick = {
+                        val updatedText = descriptionForEdit.trim() // Capturar antes de iniciar la operación.
+                        val movementId = existing.id
+                        descriptionUpdateBusy = true
+                        scope.launch {
+                            try {
+                                val latest = dao.getMovementById(movementId)
+                                    ?: error("Este movimiento ya no existe.")
+                                dao.updateMovement(latest.copy(description = updatedText))
+                                editingDescription = null
+                                movementSaveFeedback = "Descripción actualizada."
+                            } catch (e: Exception) {
+                                movementSaveFeedback = "No se pudo editar: ${e.message.orEmpty()}"
+                            } finally {
+                                descriptionUpdateBusy = false
+                            }
+                        }
+                    }
+                ) { Text(if (descriptionUpdateBusy) "Guardando…" else "Guardar") }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !descriptionUpdateBusy,
+                    onClick = { editingDescription = null }
+                ) { Text("Cancelar") }
+            }
+        )
+    }
     if (merchantAliasEditor != null) {
         val original = merchantAliasEditor!!
         MerchantAliasDialog(
@@ -2130,12 +2186,45 @@ fun MovementScreen(
                 FilterChip(expense, { expense = true }, label = { Text("Gasto") })
                 FilterChip(!expense, { expense = false }, label = { Text("Ingreso") })
             }
-            val valid = description.isNotBlank() && (amount.toLongOrNull() ?: 0L) > 0 && parseDate(date) != null
-            Button(enabled = valid, onClick = {
-                val value = amount.toLongOrNull() ?: return@Button
-                scope.launch { dao.insertMovement(Movement(account = account, description = description.trim(), amountClp = if (expense) -value else value, date = date, category = category.trim())) }
-                description = ""; amount = ""
-            }, modifier = Modifier.fillMaxWidth()) { Text("Guardar movimiento") }
+            val valid = description.trim().isNotEmpty() &&
+                (amount.toLongOrNull() ?: 0L) > 0L && parseDate(date) != null
+            Button(
+                enabled = valid && !saveMovementBusy,
+                onClick = {
+                    val value = amount.toLongOrNull() ?: return@Button
+                    // IMPORTANTE: capturar todos los campos ANTES de lanzar la coroutine.
+                    // Antes se limpiaba description inmediatamente y Room recibía "".
+                    val entry = Movement(
+                        account = account,
+                        description = description.trim(),
+                        amountClp = if (expense) -value else value,
+                        date = date,
+                        category = category.trim()
+                    )
+                    if (entry.description.isBlank()) return@Button
+                    saveMovementBusy = true
+                    movementSaveFeedback = ""
+                    scope.launch {
+                        try {
+                            val insertedId = dao.insertMovement(entry)
+                            require(insertedId > 0L) { "No se confirmó el guardado." }
+                            description = ""
+                            amount = ""
+                            movementSaveFeedback = "Movimiento guardado con su descripción."
+                        } catch (e: Exception) {
+                            // Conserva el formulario para reintentar si Room falla.
+                            movementSaveFeedback = "No se pudo guardar: ${e.message.orEmpty()}"
+                        } finally {
+                            saveMovementBusy = false
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (saveMovementBusy) "Guardando…" else "Guardar movimiento") }
+            if (movementSaveFeedback.isNotBlank()) {
+                Text(movementSaveFeedback, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             HorizontalDivider()
             Text("Historial", style = MaterialTheme.typography.titleLarge)
             Text("En una salida de dinero, usa «Asociar gasto» para marcar un gasto programado como pagado sin volver a descontar el monto.",
@@ -2220,6 +2309,10 @@ fun MovementScreen(
                                             "Ver gasto pagado" else "✓ Asociar gasto")
                                     }
                                 }
+                                TextButton(onClick = {
+                                    editingDescription = m
+                                    descriptionForEdit = m.description
+                                }) { Text(if (m.description.isBlank()) "Agregar descripción" else "Editar descripción") }
                                 TextButton(onClick = {
                                     categorizingMovement = m
                                     categoryForEdit = m.category
