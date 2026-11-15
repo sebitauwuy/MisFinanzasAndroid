@@ -19,7 +19,7 @@ import java.util.Locale
 
 /** Correos -> revisión -> movimientos. Nunca afecta saldos sin aprobación. */
 @Composable
-fun OutlookMailSection(db: FinanceDatabase) {
+fun OutlookMailSection(db: FinanceDatabase, reviewOnly: Boolean = false) {
     val context = LocalContext.current
     val dao = remember(db) { db.financeDao() }
     val scope = rememberCoroutineScope()
@@ -38,6 +38,8 @@ fun OutlookMailSection(db: FinanceDatabase) {
     var transferDestination by remember { mutableStateOf("MACH") }
     var transferDuplicateWarning by remember { mutableStateOf(false) }
     var restoreCandidate by remember { mutableStateOf<MailCandidate?>(null) }
+    var aliasEditor by remember { mutableStateOf<String?>(null) }
+    var aliasRevision by remember { mutableIntStateOf(0) }
     val clp = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CL")) }
 
     fun approve(candidate: MailCandidate, allowDuplicate: Boolean) {
@@ -82,6 +84,16 @@ fun OutlookMailSection(db: FinanceDatabase) {
                 message = "No se pudo registrar: ${e.message}"
             }
         }
+    }
+
+    if (aliasEditor != null) {
+        val original = aliasEditor!!
+        MerchantAliasDialog(
+            description = original,
+            matches = MerchantAliases.count(original, emptyList(), mailItems),
+            onDismiss = { aliasEditor = null },
+            onSaved = { aliasRevision++; aliasEditor = null }
+        )
     }
 
     if (restoreCandidate != null) {
@@ -165,7 +177,10 @@ fun OutlookMailSection(db: FinanceDatabase) {
                             db.withTransaction {
                                 val fresh = dao.getMailCandidate(candidate.sourceId) ?: return@withTransaction
                                 if (fresh.status !in listOf("PENDIENTE", "POSIBLE_DUPLICADO")) return@withTransaction
-                                if (!OutlookGraph.isAfterCutoff(context, fresh)) { excluded = true; return@withTransaction }
+                                val allowedByCutoff = if (GmailBankSync.isGmailCandidate(fresh))
+                                    GmailBankSync.isAfterCutoff(context, fresh)
+                                else OutlookGraph.isAfterCutoff(context, fresh)
+                                if (!allowedByCutoff) { excluded = true; return@withTransaction }
                                 val amount = kotlin.math.abs(fresh.amountClp)
                                 val origin = fresh.copy(amountClp = -amount)
                                 val destination = fresh.copy(account = transferDestination, amountClp = amount)
@@ -218,6 +233,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
         )
     }
 
+    if (!reviewOnly) {
     Text("Conexión experimental: solo lectura de correo, sin claves bancarias. Para usarla hay que registrar Mis Finanzas como aplicación pública en Microsoft y copiar su ID (no es una contraseña).",
         style = MaterialTheme.typography.bodySmall)
     OutlinedTextField(
@@ -302,6 +318,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
     }
     Text("Busca avisos de Banco de Chile y transferencias enviadas desde CuentaRUT BancoEstado. Solo se interpretan los datos legibles como texto en el correo; comprobantes formados únicamente por imágenes requieren soporte adicional. Todo queda pendiente de revisión, sin importar movimientos automáticamente. La búsqueda abarca hasta 30 días desde la fecha de corte configurada; no equivale a un saldo bancario en vivo.",
         style = MaterialTheme.typography.bodySmall)
+    } // Opciones de conexión solo en Ajustes; el diálogo muestra directamente los avisos.
     if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
 
     val pending = mailItems.filter { it.status == "PENDIENTE" || it.status == "POSIBLE_DUPLICADO" }
@@ -310,12 +327,23 @@ fun OutlookMailSection(db: FinanceDatabase) {
     pending.take(30).forEach { candidate ->
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(candidate.description, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                val friendly = MerchantAliases.label(context, candidate.description)
+                // aliasRevision fuerza el refresco inmediato al guardar un nuevo nombre.
+                Text(friendly, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                if (friendly != candidate.description) {
+                    Text("Banco: ${candidate.description}",
+                        style = MaterialTheme.typography.labelSmall)
+                }
                 Text("${candidate.operationDate} · ${clp.format(candidate.amountClp)} · ${candidate.category}",
                     style = MaterialTheme.typography.bodySmall)
                 Text(candidate.note, style = MaterialTheme.typography.labelSmall)
                 if (candidate.status == "POSIBLE_DUPLICADO")
                     Text("Posible duplicado de la cartola", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
+                TextButton(onClick = { aliasEditor = candidate.description }) {
+                    val occurrences = MerchantAliases.count(candidate.description, emptyList(), mailItems)
+                    Text(if (occurrences >= 2) "Renombrar · se repite ${occurrences} veces"
+                        else "Poner nombre")
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = {
                         if (candidate.status == "POSIBLE_DUPLICADO" && candidate.category != "Transferencia interna") overrideCandidate = candidate
@@ -338,7 +366,7 @@ fun OutlookMailSection(db: FinanceDatabase) {
         val imported = mailItems.filter { it.status == "IMPORTADO" }
         imported.take(20).forEach { candidate ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("${candidate.operationDate} · ${candidate.description.take(42)} · ${clp.format(candidate.amountClp)}",
+                Text("${candidate.operationDate} · ${MerchantAliases.label(context, candidate.description).take(42)} · ${clp.format(candidate.amountClp)}",
                     modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = { restoreCandidate = candidate }) { Text("Revisar otra vez") }
             }
