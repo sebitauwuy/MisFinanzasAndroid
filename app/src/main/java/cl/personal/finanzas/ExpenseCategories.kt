@@ -178,7 +178,9 @@ fun ExpenseCategoryPicker(
                         val newName = newCategory.trim().replace(Regex("""\s+"""), " ")
                         if (ExpenseCategories.add(context, newName)) {
                             revision++
-                            onChange(newName)
+                            val canonical = ExpenseCategories.choices(context)
+                                .firstOrNull { it.equals(newName, ignoreCase = true) } ?: newName
+                            onChange(canonical)
                             creating = false
                         } else error = true
                     }
