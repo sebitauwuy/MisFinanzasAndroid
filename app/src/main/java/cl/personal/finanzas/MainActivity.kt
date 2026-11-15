@@ -2046,6 +2046,12 @@ fun MovementScreen(
     scope: kotlinx.coroutines.CoroutineScope,
     availableAccounts: List<String>
 ) {
+    val context = LocalContext.current
+    val merchantFrequency = remember(movements) {
+        movements.groupingBy { MerchantAliases.key(it.description) }.eachCount()
+    }
+    var merchantAliasEditor by remember { mutableStateOf<String?>(null) }
+    var aliasRevision by remember { mutableIntStateOf(0) }
     var description by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var account by remember(availableAccounts) { mutableStateOf(availableAccounts.firstOrNull() ?: "Banco de Chile") }
@@ -2058,6 +2064,15 @@ fun MovementScreen(
     var deletionWarning by remember { mutableStateOf("") }
     var categorizingMovement by remember { mutableStateOf<Movement?>(null) }
     var categoryForEdit by remember { mutableStateOf("General") }
+    if (merchantAliasEditor != null) {
+        val original = merchantAliasEditor!!
+        MerchantAliasDialog(
+            description = original,
+            matches = merchantFrequency[MerchantAliases.key(original)] ?: 0,
+            onDismiss = { merchantAliasEditor = null },
+            onSaved = { aliasRevision++; merchantAliasEditor = null }
+        )
+    }
     if (categorizingMovement != null) {
         val selected = categorizingMovement!!
         AlertDialog(
@@ -2096,6 +2111,7 @@ fun MovementScreen(
     val filteredMovements = movements.filter {
         (selectedAccount == "Todas" || it.account == selectedAccount) &&
             (search.isBlank() || it.description.contains(search, ignoreCase = true) ||
+                MerchantAliases.label(context, it.description).contains(search, ignoreCase = true) ||
                 it.category.contains(search, ignoreCase = true) || it.date.contains(search))
     }
     val groupedMovements = filteredMovements.groupBy { movement ->
@@ -2175,7 +2191,15 @@ fun MovementScreen(
                     Card(Modifier.fillMaxWidth().animateItem()) {
                         Row(Modifier.padding(12.dp)) {
                             Column(Modifier.weight(1f)) {
-                                Text(m.description.ifBlank { "(Sin descripción)" }, style = MaterialTheme.typography.titleMedium)
+                                val friendly = remember(m.description, aliasRevision) {
+                                    MerchantAliases.label(context, m.description)
+                                }
+                                Text(friendly.ifBlank { "(Sin descripción)" },
+                                    style = MaterialTheme.typography.titleMedium)
+                                if (friendly != m.description) {
+                                    Text("Banco: ${m.description}",
+                                        style = MaterialTheme.typography.labelSmall)
+                                }
                                 Text("${AccountCatalog.displayName(m.account)} · ${m.category} · ${dateForDisplay(m.date)}",
                                     style = MaterialTheme.typography.bodySmall)
                                 Text(money(m.amountClp))
@@ -2200,6 +2224,11 @@ fun MovementScreen(
                                     categorizingMovement = m
                                     categoryForEdit = m.category
                                 }) { Text("Categorizar") }
+                                TextButton(onClick = { merchantAliasEditor = m.description }) {
+                                    val repeatCount = merchantFrequency[MerchantAliases.key(m.description)] ?: 0
+                                    Text(if (repeatCount >= 2) "Renombrar comercio · ${repeatCount} veces"
+                                        else "Poner nombre")
+                                }
                             }
                             TextButton(onClick = {
                                 val linked = links.any { it.movementId == m.id } ||
