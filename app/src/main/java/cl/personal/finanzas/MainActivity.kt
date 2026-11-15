@@ -815,13 +815,10 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
         loadedMovements != null && loadedObligations != null &&
         loadedPlannedExpenses != null && duePaymentPrompt == null &&
         tab == 0 && sharedText.isBlank()
-    LaunchedEffect(welcomeReady, initialWelcomePending) {
-        if (welcomeReady && initialWelcomePending) {
-            // Registrar cuando realmente se abre, no cuando cambia la versión.
-            QuickStartWelcome.markShown(context)
-        }
-    }
     fun closeWelcome() {
+        // Solo marcar después de cerrar la guía: si aparece un aviso prioritario
+        // antes de que la persona la lea, permanece pendiente para otro inicio.
+        if (initialWelcomePending) QuickStartWelcome.markShown(context)
         initialWelcomePending = false
         welcomeOpenedManually = false
     }
