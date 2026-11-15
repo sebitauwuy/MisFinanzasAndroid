@@ -24,6 +24,7 @@ fun OutlookMailSection(db: FinanceDatabase, reviewOnly: Boolean = false) {
     val dao = remember(db) { db.financeDao() }
     val scope = rememberCoroutineScope()
     val mailItems by remember(dao) { dao.mailCandidates() }.collectAsState(initial = emptyList())
+    val previousMovements by remember(dao) { dao.movements() }.collectAsState(initial = emptyList())
     var applicationId by remember { mutableStateOf(OutlookGraph.clientId(context)) }
     var accountSuffix by remember { mutableStateOf(OutlookGraph.accountLast4(context)) }
     var cutoff by remember { mutableStateOf(OutlookGraph.cutoffDate(context)) }
@@ -90,7 +91,7 @@ fun OutlookMailSection(db: FinanceDatabase, reviewOnly: Boolean = false) {
         val original = aliasEditor!!
         MerchantAliasDialog(
             description = original,
-            matches = MerchantAliases.count(original, emptyList(), mailItems),
+            matches = MerchantAliases.count(original, previousMovements, mailItems),
             onDismiss = { aliasEditor = null },
             onSaved = { aliasRevision++; aliasEditor = null }
         )
@@ -342,7 +343,7 @@ fun OutlookMailSection(db: FinanceDatabase, reviewOnly: Boolean = false) {
                 if (candidate.status == "POSIBLE_DUPLICADO")
                     Text("Posible duplicado de la cartola", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
                 TextButton(onClick = { aliasEditor = candidate.description }) {
-                    val occurrences = MerchantAliases.count(candidate.description, emptyList(), mailItems)
+                    val occurrences = MerchantAliases.count(candidate.description, previousMovements, mailItems)
                     Text(if (occurrences >= 2) "Renombrar · se repite ${occurrences} veces"
                         else "Poner nombre")
                 }
