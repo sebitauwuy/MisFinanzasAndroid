@@ -113,6 +113,17 @@ object ChileBankEmailParser {
             .digest(("outlook:" + source).toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
 
+        if (subject == "comprobante de pago cuentas") {
+            // Pago de varias cuentas de servicios desde un solo débito.
+            // Solo se reconoce desde el correo de transferencias del banco,
+            // cuando el total coincide con la suma de las cuentas pagadas.
+            if (!address.equals("serviciodetransferencias@bancochile.cl", true)) return null
+            val text = if (body.contains('<') && body.contains('>'))
+                android.text.Html.fromHtml(body, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
+            else body
+            return BancoChileBillPaymentParser.parse(text, hash, accountLast4)
+        }
+
         if (subject == "cargo en cuenta") {
             val m = purchase.find(body) ?: return null
             if (m.groupValues[2] != accountLast4) return null
