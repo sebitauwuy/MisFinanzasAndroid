@@ -49,7 +49,7 @@ object BancoChileBillPaymentParser {
         Normalizer.normalize(body.replace('\u00a0', ' ').replace('\u200d', ' '),
             Normalizer.Form.NFD)
             .replace(Regex("""\p{M}+"""), "")
-            .lowercase(Locale.ROOT)
+            // Preservar nombres de servicios: "Aguas Andinas" o "CGE".
             .replace(Regex("""\s+"""), " ")
             .trim()
 
@@ -84,7 +84,7 @@ object BancoChileBillPaymentParser {
 
         val dateMatch = paymentDate.find(text) ?: return null
         val day = dateMatch.groupValues[1].toIntOrNull() ?: return null
-        val month = months[dateMatch.groupValues[2]] ?: return null
+        val month = months[dateMatch.groupValues[2].lowercase(Locale.ROOT)] ?: return null
         val year = dateMatch.groupValues[3].toIntOrNull() ?: return null
         val date = runCatching { LocalDate.of(year, month, day) }.getOrNull() ?: return null
         val clock = dateMatch.groupValues[4]
