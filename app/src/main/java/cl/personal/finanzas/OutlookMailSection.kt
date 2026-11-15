@@ -327,7 +327,9 @@ fun OutlookMailSection(db: FinanceDatabase, reviewOnly: Boolean = false) {
     pending.take(30).forEach { candidate ->
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                val friendly = MerchantAliases.label(context, candidate.description)
+                val friendly = remember(candidate.description, aliasRevision) {
+                    MerchantAliases.label(context, candidate.description)
+                }
                 // aliasRevision fuerza el refresco inmediato al guardar un nuevo nombre.
                 Text(friendly, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 if (friendly != candidate.description) {
