@@ -325,6 +325,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
     var promptedForegroundEvent by remember { mutableIntStateOf(-1) }
     var requestedPlannedPaymentId by remember { mutableStateOf<Long?>(null) }
     var showEmailImporter by remember { mutableStateOf(false) }
+    var reviewPendingMails by remember { mutableStateOf(false) }
     LaunchedEffect(sharedText) {
         if (sharedText.isNotBlank()) { tab = 1; showEmailImporter = true }
     }
@@ -368,7 +369,10 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
     // Sincronización bajo demanda y al abrir la aplicación, nunca registra cargos sin revisión.
     LaunchedEffect(unlocked, accountConfigured) {
         if (unlocked && accountConfigured && OutlookGraph.enabled(context) && OutlookGraph.isConnected(context)) {
-            try { OutlookGraph.sync(context, dao) } catch (_: Exception) {
+            try {
+                val result = OutlookGraph.sync(context, dao)
+                if (result.queued > 0) reviewPendingMails = true
+            } catch (_: Exception) {
                 // El usuario puede ver el error usando "Buscar avisos ahora" en Ajustes.
             }
         }
@@ -824,6 +828,11 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
     }
 
     FinanceTheme {
+        if (reviewPendingMails && unlocked && accountConfigured && !managingAccounts &&
+            duePaymentPrompt == null && !(welcomeReady && initialWelcomePending) &&
+            !welcomeOpenedManually) {
+            PendingMailReviewDialog(db, onDismiss = { reviewPendingMails = false })
+        }
         if ((welcomeReady && initialWelcomePending) || welcomeOpenedManually) {
             QuickStartWelcomeDialog(
                 onClose = { closeWelcome() },
@@ -1016,12 +1025,16 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                                                 "Outlook actualizado: sin avisos nuevos (${result.scanned} correos revisados)."
                                         }
                                         refreshingOutlook = false
-                                        val response = refreshSnackbar.showSnackbar(
-                                            message = summary,
-                                            actionLabel = if (pendingCount > 0) "Ver avisos" else null,
-                                            duration = SnackbarDuration.Long
-                                        )
-                                        if (response == SnackbarResult.ActionPerformed) tab = 4
+                                        if (pendingCount > 0) {
+                                            // Al actualizar, abrir DIRECTAMENTE los avisos pendientes,
+                                            // sin obligar a buscar en Ajustes una sección desplegable.
+                                            reviewPendingMails = true
+                                        } else {
+                                            refreshSnackbar.showSnackbar(
+                                                message = summary,
+                                                duration = SnackbarDuration.Short
+                                            )
+                                        }
                                     } catch (e: Exception) {
                                         refreshingOutlook = false
                                         val detail = e.message?.replace(Regex("""[\r\n]+"""), " ")
