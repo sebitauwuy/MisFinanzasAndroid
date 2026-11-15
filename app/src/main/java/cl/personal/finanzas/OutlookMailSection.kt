@@ -363,6 +363,7 @@ fun OutlookMailSection(db: FinanceDatabase, reviewOnly: Boolean = false) {
             }
         }
     }
+    if (!reviewOnly) {
     val processed = mailItems.count { it.status == "IMPORTADO" }
     if (processed > 0) {
         Text("Importados desde el correo: $processed", style = MaterialTheme.typography.labelMedium)
@@ -375,4 +376,5 @@ fun OutlookMailSection(db: FinanceDatabase, reviewOnly: Boolean = false) {
             }
         }
     }
+    } // historial completo solo en Ajustes, no en ventana de confirmación
 }
