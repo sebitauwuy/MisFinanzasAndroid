@@ -316,6 +316,11 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
         }
     }
     var tab by remember { mutableStateOf(0) }
+    // La clave de la guía es estable: NO depende de versionCode ni de las actualizaciones.
+    var initialWelcomePending by remember {
+        mutableStateOf(!QuickStartWelcome.wasShown(context))
+    }
+    var welcomeOpenedManually by remember { mutableStateOf(false) }
     var duePaymentPrompt by remember { mutableStateOf<DuePaymentNudge?>(null) }
     var promptedForegroundEvent by remember { mutableIntStateOf(-1) }
     var requestedPlannedPaymentId by remember { mutableStateOf<Long?>(null) }
@@ -804,7 +809,33 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
             }) { Text("Reemplazar datos") } },
             dismissButton = { TextButton(onClick = { importConfirm = null }) { Text("Cancelar") } })
     }
+    // Se presenta una sola vez, después del desbloqueo y de configurar las cuentas.
+    // No interrumpe avisos compartidos ni recordatorios de pago.
+    val welcomeReady = unlocked && accountConfigured && !managingAccounts &&
+        loadedMovements != null && loadedObligations != null &&
+        loadedPlannedExpenses != null && duePaymentPrompt == null &&
+        tab == 0 && sharedText.isBlank()
+    LaunchedEffect(welcomeReady, initialWelcomePending) {
+        if (welcomeReady && initialWelcomePending) {
+            // Registrar cuando realmente se abre, no cuando cambia la versión.
+            QuickStartWelcome.markShown(context)
+        }
+    }
+    fun closeWelcome() {
+        initialWelcomePending = false
+        welcomeOpenedManually = false
+    }
+
     FinanceTheme {
+        if ((welcomeReady && initialWelcomePending) || welcomeOpenedManually) {
+            QuickStartWelcomeDialog(
+                onClose = { closeWelcome() },
+                onOpenSettings = {
+                    closeWelcome()
+                    tab = 4
+                }
+            )
+        }
         if (unlocked && accountConfigured && duePaymentPrompt != null) {
             val nudge = duePaymentPrompt!!
             DuePaymentNudgeDialog(
@@ -1055,6 +1086,21 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             // no al padre de la transición entre pestañas.
                             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                             Spacer(Modifier.height(16.dp))
+                            FinanceSettingsGroup(
+                                "Guía de inicio",
+                                "Importar cartola y conectar correo",
+                                expandedAtStart = false
+                            ) {
+                                Text(
+                                    "Revisa los primeros pasos cuando quieras. " +
+                                        "La guía no vuelve a aparecer automáticamente al actualizar.",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                OutlinedButton(onClick = { welcomeOpenedManually = true }) {
+                                    Text("Ver primeros pasos")
+                                }
+                            }
+                            Spacer(Modifier.height(12.dp))
                             FinanceSettingsGroup("Mis cuentas", "Selecciona qué cuentas quieres ver", expandedAtStart = true) {
                             Text(visibleAccounts.joinToString(" · ") { AccountCatalog.displayName(it) }, style = MaterialTheme.typography.bodySmall)
                             Button(onClick = { managingAccounts = true }) { Text("Agregar u ocultar cuentas") }
