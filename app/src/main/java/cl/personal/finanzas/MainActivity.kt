@@ -2320,7 +2320,7 @@ fun MovementScreen(
                                     Text("Banco: ${m.description}",
                                         style = MaterialTheme.typography.labelSmall)
                                 }
-                                Text("${AccountCatalog.displayName(m.account)} · ${m.category} · ${dateForDisplay(m.date)}",
+                                Text("${AccountCatalog.displayName(m.account)} · ${ExpenseCategories.flat(m.category)} · ${dateForDisplay(m.date)}",
                                     style = MaterialTheme.typography.bodySmall)
                                 Text(money(m.amountClp))
                                 val link = links.firstOrNull { it.movementId == m.id }
