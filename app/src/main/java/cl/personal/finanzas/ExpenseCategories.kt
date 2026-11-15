@@ -92,7 +92,7 @@ object ExpenseCategories {
         val names = if (legacy) emptyList() else
             (0 until array.length()).map { array.getString(it) }
         val saved = JSONArray()
-        names.forEach(saved::put)
+        names.forEach { saved.put(it) }
         return preferences(context).edit().putString(KEY, saved.toString()).commit()
     }
 }
