@@ -956,7 +956,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                         // Conservamos el ID interno 1 para no alterar rutas ni datos.
                         val sections = listOf(
                             Triple(0, "Inicio", Icons.Filled.Home),
-                            Triple(2, "Cuotas", Icons.Filled.CreditCard),
+                            Triple(2, "Créditos", Icons.Filled.CreditCard),
                             Triple(5, "Gastos", Icons.Filled.Event),
                             Triple(3, "Cobros", Icons.Filled.Payments)
                         )
@@ -2005,7 +2005,7 @@ fun Dashboard(
                         Text(AccountCatalog.displayName(account), fontWeight = FontWeight.SemiBold)
                         Text(money(amount), style = MaterialTheme.typography.titleMedium)
                         if (!AccountCatalog.isCash(account))
-                            Text("Crédito · Cupo disponible en Cuotas", style = MaterialTheme.typography.labelSmall, color = FinancePalette.Muted)
+                            Text("Crédito · Disponible en Créditos", style = MaterialTheme.typography.labelSmall, color = FinancePalette.Muted)
                     }
                     TextButton(onClick = {
                         editingAccount = account

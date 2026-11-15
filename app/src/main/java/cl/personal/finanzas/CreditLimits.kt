@@ -1,6 +1,7 @@
 package cl.personal.finanzas
 
 import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -10,7 +11,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
@@ -134,50 +137,118 @@ fun CreditLimitsSection(movements: List<Movement>, visibleAccounts: List<String>
     var message by remember { mutableStateOf("") }
     val clp = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CL")) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Cupos de crédito", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("Configura tu cupo y el disponible actual según el banco. Las compras registradas DESPUÉS del ajuste reducen el disponible; los pagos registrados lo aumentan.",
-            style = MaterialTheme.typography.bodySmall)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Créditos", style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold)
+        Text("Disponible y cupo de cada tarjeta",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+
         if (cards.isEmpty()) {
-            Text("Activa tus tarjetas de crédito en Ajustes → Mis cuentas para configurar sus cupos.",
-                style = MaterialTheme.typography.bodyMedium)
+            Text("Activa tus tarjetas en Ajustes → Mis cuentas para ver sus cupos.",
+                style = MaterialTheme.typography.bodySmall)
         }
+
         cards.forEach { account ->
             val config = remember(account, revision) { CreditLimitStore.load(context, account) }
             val available = config?.let { CreditLimitStore.available(it, account, movements) }
             val used = if (config != null && available != null) config.limitClp - available else null
-            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
-                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(AccountCatalog.displayName(account), modifier = Modifier.weight(1f),
-                            fontWeight = FontWeight.SemiBold)
-                        TextButton(onClick = {
-                            editAccount = account
-                            totalInput = config?.limitClp?.toString().orEmpty()
-                            availableInput = available?.toString().orEmpty()
-                        }) { Text(if (config == null) "Configurar" else "Ajustar") }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                ),
+                border = BorderStroke(
+                    1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            AccountCatalog.displayName(account),
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        TextButton(
+                            onClick = {
+                                editAccount = account
+                                totalInput = config?.limitClp?.toString().orEmpty()
+                                availableInput = available?.toString().orEmpty()
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text(if (config == null) "Configurar" else "Ajustar",
+                                style = MaterialTheme.typography.labelLarge)
+                        }
                     }
+
                     if (config != null && available != null && used != null) {
-                        Text("Disponible estimado: ${clp.format(available)}", style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold)
-                        Text("Cupo total: ${clp.format(config.limitClp)} · Utilizado: ${clp.format(used)}",
-                            style = MaterialTheme.typography.bodySmall)
-                        Box(Modifier.fillMaxWidth().height(9.dp).background(
-                            MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp))) {
-                            Box(Modifier.fillMaxWidth((available.toFloat() / config.limitClp).coerceIn(0f, 1f))
-                                .fillMaxHeight().background(MaterialTheme.colorScheme.primary,
-                                    RoundedCornerShape(10.dp)))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("Disponible",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                clp.format(available),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            "Cupo ${clp.format(config.limitClp)}  ·  Usado ${clp.format(used)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val ratio = (available.toFloat() / config.limitClp).coerceIn(0f, 1f)
+                        Box(
+                            Modifier.fillMaxWidth().height(6.dp).background(
+                                MaterialTheme.colorScheme.surfaceContainerHighest,
+                                RoundedCornerShape(6.dp)
+                            )
+                        ) {
+                            Box(
+                                Modifier.fillMaxWidth(ratio).fillMaxHeight().background(
+                                    Color(0xFF21A186), RoundedCornerShape(6.dp)
+                                )
+                            )
                         }
                     } else {
-                        Text("Sin cupo configurado. No se asumirá un límite a partir de tus cuotas.",
-                            style = MaterialTheme.typography.bodySmall)
+                        Text("Sin cupo configurado.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
         }
-        if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall)
-        Text("Para registrar compras o pagos, usa Movs. y selecciona la tarjeta correspondiente. Las cuotas pendientes no se descuentan de nuevo del cupo.",
-            style = MaterialTheme.typography.bodySmall)
+
+        if (message.isNotBlank()) {
+            Text(message, style = MaterialTheme.typography.bodySmall)
+        }
+        Text(
+            "Los movimientos nuevos ajustan el disponible; las cuotas pendientes no se descuentan dos veces.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 
     if (editAccount != null) {
