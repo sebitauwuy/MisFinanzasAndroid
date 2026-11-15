@@ -86,12 +86,12 @@ object CategoryBudgetStore {
             m.amountClp < 0L &&
                 runCatching { YearMonth.from(LocalDate.parse(m.date)) == month }.getOrDefault(false) &&
                 !isInternal(m.category)
-        }.groupBy { it.category.trim().ifBlank { "General" } }
+        }.groupBy { ExpenseCategories.flat(it.category) }
             .mapValues { (_, values) -> values.sumOf { -it.amountClp } }
             .filterValues { it > 0L }
 
     fun spentFor(spending: Map<String, Long>, category: String): Long =
-        spending.filterKeys { key(it) == key(category) || key(it).startsWith(key(category) + " / ") }.values.sum()
+        spending.filterKeys { key(it) == key(ExpenseCategories.flat(category)) }.values.sum()
 
     private fun isInternal(category: String): Boolean {
         val value = key(category)
