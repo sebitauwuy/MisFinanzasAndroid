@@ -196,7 +196,7 @@ fun PlannedExpensesScreen(
                                 Text(plan.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                 Text("${if (plan.frequency == "SEMANAL") "Cada semana" else "Cada mes"} · ${if (plan.isVariable) "Variable" else "Fijo"}",
                                     style = MaterialTheme.typography.bodySmall)
-                                Text(plan.category, style = MaterialTheme.typography.labelSmall)
+                                Text(ExpenseCategories.flat(plan.category), style = MaterialTheme.typography.labelSmall)
                             }
                             Text(clp.format(plan.estimatedAmountClp), fontWeight = FontWeight.Bold)
                         }
