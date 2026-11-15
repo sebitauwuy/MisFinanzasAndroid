@@ -11,162 +11,184 @@ import org.json.JSONArray
 import java.util.Locale
 
 /**
- * Categorías y subcategorías elegidas por el usuario.
- * Los movimientos guardan el valor "Categoría / Subcategoría" en la columna
- * category existente, sin tocar importes ni saldos.
+ * Un solo nivel de categorías. El campo category de Room sigue siendo String:
+ * NO se alteran saldos ni descripciones históricas.
  */
 object ExpenseCategories {
     val predefined = listOf("Suscripción", "Juego", "Comida", "Ocio", "Gastos comunes")
-    private const val FILE = "expense_subcategories_v1"
-    private const val KEY = "paths"
+    private const val FILE = "expense_categories_v2"
+    private const val KEY = "names"
+    private const val LIMIT = 100
 
-    fun parentOf(value: String): String = value.substringBefore(" / ").trim().ifBlank { "General" }
-    fun childOf(value: String): String = if (" / " in value) value.substringAfter(" / ").trim() else ""
+    /** Solo para mostrar y agrupar valores históricos "Comida / Restaurante". */
+    fun flat(value: String): String =
+        value.trim().substringBefore(" / ").trim().ifBlank { "General" }
 
-    private fun validParent(parent: String) = parent in predefined
-    private fun validChild(child: String) = child.isNotBlank() &&
-        child.length <= 40 && '/' !in child && '\n' !in child && '\r' !in child
-
-    private fun isValidPath(path: String): Boolean {
-        val parent = parentOf(path)
-        val child = childOf(path)
-        return validParent(parent) && validChild(child) &&
-            path == parent + " / " + child
+    private fun normalize(value: String) = value.trim().replace(Regex("""\s+"""), " ")
+    private fun valid(value: String): Boolean {
+        val name = normalize(value)
+        return name.length in 1..50 && '/' !in name &&
+            '\n' !in name && '\r' !in name &&
+            name != "+ Nueva categoría"
     }
-
     private fun preferences(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
     fun all(context: Context): List<String> = runCatching {
-        val items = JSONArray(preferences(context).getString(KEY, "[]") ?: "[]")
-        (0 until items.length()).map { items.getString(it) }
-            .filter(::isValidPath).distinct().take(200)
+        val names = JSONArray(preferences(context).getString(KEY, "[]") ?: "[]")
+        (0 until names.length()).map { normalize(names.getString(it)) }
+            .filter(::valid)
+            .distinctBy { it.lowercase(Locale.ROOT) }
+            .take(LIMIT)
     }.getOrDefault(emptyList())
 
-    fun children(context: Context, parent: String): List<String> =
-        all(context).filter { parentOf(it) == parent }.map(::childOf).sorted()
+    /** La categoría en uso siempre sigue disponible, incluso si fue importada de un banco. */
+    fun choices(context: Context, history: Collection<String> = emptyList()): List<String> =
+        (listOf("General") + predefined + all(context) + history.map(::flat))
+            .map(::normalize)
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase(Locale.ROOT) }
 
-    fun add(context: Context, parent: String, child: String): Boolean {
-        val cleaned = child.trim()
-        if (!validParent(parent) || !validChild(cleaned)) return false
-        val path = parent + " / " + cleaned
+    fun add(context: Context, requested: String): Boolean {
+        val name = normalize(requested)
+        if (!valid(name)) return false
+        if ((listOf("General") + predefined).any { it.equals(name, true) }) return true
         val old = all(context)
-        if (old.any { it.equals(path, ignoreCase = true) }) return true
-        if (old.size >= 200) return false
-        val next = JSONArray()
-        (old + path).forEach { next.put(it) }
-        return preferences(context).edit().putString(KEY, next.toString()).commit()
+        if (old.any { it.equals(name, true) }) return true
+        if (old.size >= LIMIT) return false
+        val array = JSONArray()
+        (old + name).forEach { array.put(it) }
+        return preferences(context).edit().putString(KEY, array.toString()).commit()
     }
 
-    fun export(context: Context): JSONArray =
-        JSONArray().also { array -> all(context).forEach { array.put(it) } }
+    /** Desde respaldo v13: las entradas son solo categorías planas del usuario. */
+    fun export(context: Context): JSONArray = JSONArray().also { array ->
+        all(context).forEach(array::put)
+    }
 
-    fun validateImport(array: JSONArray) {
-        require(array.length() <= 200) { "Demasiadas subcategorías" }
+    /** Los respaldos v11-v12 contienen rutas antiguas de subcategoría. */
+    fun validateImport(array: JSONArray, legacy: Boolean = false) {
+        require(array.length() <= if (legacy) 200 else LIMIT) {
+            "Demasiadas categorías en el respaldo"
+        }
         val seen = mutableSetOf<String>()
-        for (i in 0 until array.length()) {
-            val path = array.getString(i)
-            require(isValidPath(path) &&
-                seen.add(path.lowercase(Locale.ROOT))) {
-                "Subcategoría inválida o duplicada en el respaldo"
+        for (index in 0 until array.length()) {
+            val name = array.getString(index)
+            val validLegacy = legacy && " / " in name &&
+                name.substringBefore(" / ") in predefined &&
+                name.substringAfter(" / ").isNotBlank() &&
+                name.length <= 100
+            require((valid(name) || validLegacy) &&
+                seen.add(name.lowercase(Locale.ROOT))) {
+                "Categoría inválida o duplicada en el respaldo"
             }
         }
     }
 
-    fun restore(context: Context, array: JSONArray): Boolean {
-        validateImport(array)
-        return preferences(context).edit().putString(KEY, array.toString()).commit()
+    fun restore(context: Context, array: JSONArray, legacy: Boolean = false): Boolean {
+        validateImport(array, legacy)
+        // No promovemos rutas de subcategoría antiguas a categorías nuevas.
+        // Los movimientos históricos conservan su texto y se agrupan por categoría principal.
+        val names = if (legacy) emptyList() else
+            (0 until array.length()).map { array.getString(it) }
+        val saved = JSONArray()
+        names.forEach { saved.put(it) }
+        return preferences(context).edit().putString(KEY, saved.toString()).commit()
     }
 }
 
-/** Selector compartido entre Movs. y Gastos programados. */
+/**
+ * Selector único para Movimientos y Gastos programados.
+ * "+ Nueva categoría" abre un diálogo; se guarda como opción reutilizable.
+ */
 @Composable
 fun ExpenseCategoryPicker(
     category: String,
-    onChange: (String) -> Unit
+    onChange: (String) -> Unit,
+    historicalCategories: Collection<String> = emptyList()
 ) {
     val context = LocalContext.current
-    val parent = ExpenseCategories.parentOf(category)
-    val selectedChild = ExpenseCategories.childOf(category)
-    var parentExpanded by remember { mutableStateOf(false) }
-    var childExpanded by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
-    var newChild by remember { mutableStateOf("") }
-    var revision by remember { mutableIntStateOf(0) }
+    var newCategory by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
-    val parents = (listOf("General") + ExpenseCategories.predefined + parent).distinct()
-    val children = remember(parent, revision) {
-        ExpenseCategories.children(context, parent)
+    var revision by remember { mutableIntStateOf(0) }
+    val chosen = ExpenseCategories.flat(category)
+    val options = remember(category, historicalCategories, revision) {
+        ExpenseCategories.choices(context, historicalCategories + category)
     }
-    val availableChildren = (children + listOfNotNull(selectedChild.takeIf { it.isNotBlank() })).distinct()
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("Categoría", style = MaterialTheme.typography.labelLarge)
         Box(Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = { parentExpanded = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(parent, maxLines = 1)
-            }
-            DropdownMenu(expanded = parentExpanded, onDismissRequest = { parentExpanded = false }) {
-                parents.forEach { option ->
+            OutlinedButton(
+                onClick = { expanded = true },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(chosen, maxLines = 1) }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { option ->
                     DropdownMenuItem(
-                        text = { Text(option) },
+                        text = { Text(option, maxLines = 1) },
                         onClick = {
                             onChange(option)
-                            parentExpanded = false
-                            creating = false
+                            expanded = false
                         }
                     )
                 }
-            }
-        }
-        if (parent in ExpenseCategories.predefined) {
-            Text("Subcategoría (opcional)", style = MaterialTheme.typography.labelLarge)
-            Box(Modifier.fillMaxWidth()) {
-                OutlinedButton(onClick = { childExpanded = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(selectedChild.ifBlank { "Sin subcategoría" }, maxLines = 1)
-                }
-                DropdownMenu(expanded = childExpanded, onDismissRequest = { childExpanded = false }) {
-                    DropdownMenuItem(text = { Text("Sin subcategoría") }, onClick = {
-                        onChange(parent)
-                        childExpanded = false
-                    })
-                    availableChildren.forEach { sub ->
-                        DropdownMenuItem(text = { Text(sub) }, onClick = {
-                            onChange(parent + " / " + sub)
-                            childExpanded = false
-                        })
-                    }
-                }
-            }
-            TextButton(onClick = {
-                creating = !creating
-                error = false
-                newChild = ""
-            }) { Text(if (creating) "Cancelar nueva subcategoría" else "+ Crear subcategoría") }
-            if (creating) {
-                OutlinedTextField(
-                    value = newChild,
-                    onValueChange = { newChild = it.take(40); error = false },
-                    label = { Text("Nombre de subcategoría") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth()
-                )
-                if (error) Text("No se pudo guardar. Usa un nombre distinto y sin barras.",
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall)
-                Button(
-                    enabled = newChild.trim().isNotBlank() && !newChild.contains("/"),
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("+ Nueva categoría") },
                     onClick = {
-                        val candidate = newChild.trim()
-                        if (ExpenseCategories.add(context, parent, candidate)) {
-                            revision++
-                            onChange(parent + " / " + candidate)
-                            newChild = ""
-                            creating = false
-                            error = false
-                        } else error = true
-                    }, modifier = Modifier.fillMaxWidth()
-                ) { Text("Guardar subcategoría") }
+                        expanded = false
+                        error = false
+                        newCategory = ""
+                        creating = true
+                    }
+                )
             }
         }
+    }
+
+    if (creating) {
+        AlertDialog(
+            onDismissRequest = { creating = false },
+            title = { Text("Crear categoría") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Podrás usarla en cualquier movimiento o gasto programado.")
+                    OutlinedTextField(
+                        value = newCategory,
+                        onValueChange = { newCategory = it.take(50); error = false },
+                        label = { Text("Nombre de la categoría") },
+                        placeholder = { Text("Ej. Mascotas") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (error) Text(
+                        "El nombre no es válido o no se pudo guardar.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newCategory.trim().isNotBlank() && '/' !in newCategory,
+                    onClick = {
+                        val newName = newCategory.trim().replace(Regex("""\s+"""), " ")
+                        if (ExpenseCategories.add(context, newName)) {
+                            revision++
+                            val canonical = ExpenseCategories.choices(context)
+                                .firstOrNull { it.equals(newName, ignoreCase = true) } ?: newName
+                            onChange(canonical)
+                            creating = false
+                        } else error = true
+                    }
+                ) { Text("Crear") }
+            },
+            dismissButton = {
+                TextButton(onClick = { creating = false }) { Text("Cancelar") }
+            }
+        )
     }
 }

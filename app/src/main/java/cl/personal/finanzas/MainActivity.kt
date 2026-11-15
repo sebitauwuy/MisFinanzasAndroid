@@ -1909,8 +1909,13 @@ fun Dashboard(
             }
         }
         item {
-            val usedByCategory = CategoryBudgetStore.spending(movements, month)
-                .entries.sortedByDescending { it.value }.take(3)
+            val allCategorySpend = CategoryBudgetStore.spending(movements, month)
+            val categorySpendTotal = allCategorySpend.values.sum().coerceAtLeast(1L)
+            val orderedCategorySpend = allCategorySpend.entries.sortedByDescending { it.value }
+            val usedByCategory = if (orderedCategorySpend.size <= 5)
+                orderedCategorySpend.map { it.key to it.value }
+            else orderedCategorySpend.take(4).map { it.key to it.value } +
+                ("Otras categorías" to orderedCategorySpend.drop(4).sumOf { it.value })
             Card(shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
                 modifier = Modifier.fillMaxWidth().border(1.dp, FinancePalette.Border, RoundedCornerShape(20.dp))) {
@@ -1921,7 +1926,7 @@ fun Dashboard(
                             Text("ANÁLISIS DE GASTOS", fontWeight = FontWeight.Bold,
                                 color = FinancePalette.Navy,
                                 style = MaterialTheme.typography.labelLarge)
-                            Text("Gastos por categoría y presupuestos mensuales",
+                            Text("Distribución mensual y presupuestos",
                                 style = MaterialTheme.typography.bodySmall)
                         }
                         TextButton(onClick = { onNavigate(6) }) { Text("Ver gráficos") }
@@ -1930,12 +1935,36 @@ fun Dashboard(
                         Text("Los gráficos aparecerán cuando registres gastos.",
                             style = MaterialTheme.typography.bodySmall)
                     } else {
-                        usedByCategory.forEach { category ->
-                            Row(horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(category.key, modifier = Modifier.weight(1f),
+                        val chartColors = listOf(
+                            Color(0xFF159C7C), Color(0xFFEB7B67), Color(0xFF6B76C7),
+                            Color(0xFFE3AC51), Color(0xFF8D79A8)
+                        )
+                        // Barra apilada: todos los segmentos comparten el mismo total.
+                        Row(
+                            Modifier.fillMaxWidth().height(16.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                        ) {
+                            usedByCategory.forEachIndexed { i, pair ->
+                                Box(
+                                    Modifier.weight(pair.second.toFloat().coerceAtLeast(0.1f))
+                                        .fillMaxHeight()
+                                        .background(chartColors[i % chartColors.size])
+                                )
+                            }
+                        }
+                        usedByCategory.forEachIndexed { i, pair ->
+                            val share = pair.second * 100.0 / categorySpendTotal
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Box(Modifier.size(9.dp).background(
+                                    chartColors[i % chartColors.size],
+                                    RoundedCornerShape(3.dp)))
+                                Text(pair.first, modifier = Modifier.weight(1f),
                                     style = MaterialTheme.typography.bodySmall, maxLines = 1)
-                                Text(money(category.value), style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Bold)
+                                Text("${share.toInt()}%",
+                                    style = MaterialTheme.typography.labelSmall)
+                                Text(money(pair.second), style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -2138,7 +2167,8 @@ fun MovementScreen(
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     Text(selected.description, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(8.dp))
-                    ExpenseCategoryPicker(categoryForEdit, { categoryForEdit = it })
+                    ExpenseCategoryPicker(categoryForEdit, { categoryForEdit = it },
+                        historicalCategories = movements.map { it.category })
                 }
             },
             confirmButton = {
@@ -2180,7 +2210,8 @@ fun MovementScreen(
             OutlinedTextField(description, { description = it }, label = { Text("Descripción") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text("Monto CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             AccountPicker(account, { account = it }, availableAccounts)
-            ExpenseCategoryPicker(category, { category = it })
+            ExpenseCategoryPicker(category, { category = it },
+                historicalCategories = movements.map { it.category })
             CalendarDateField(date, { date = it }, "Fecha del movimiento")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(expense, { expense = true }, label = { Text("Gasto") })
@@ -2289,7 +2320,7 @@ fun MovementScreen(
                                     Text("Banco: ${m.description}",
                                         style = MaterialTheme.typography.labelSmall)
                                 }
-                                Text("${AccountCatalog.displayName(m.account)} · ${m.category} · ${dateForDisplay(m.date)}",
+                                Text("${AccountCatalog.displayName(m.account)} · ${ExpenseCategories.flat(m.category)} · ${dateForDisplay(m.date)}",
                                     style = MaterialTheme.typography.bodySmall)
                                 Text(money(m.amountClp))
                                 val link = links.firstOrNull { it.movementId == m.id }

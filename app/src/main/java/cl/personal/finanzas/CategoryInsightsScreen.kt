@@ -53,7 +53,14 @@ fun CategoryInsightsScreen(movements: List<Movement>, onBack: () -> Unit) {
     val clp = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("es-CL")) }
     val month = YearMonth.now()
     val spending = remember(movements, month) { CategoryBudgetStore.spending(movements, month) }
-    val categories = spending.entries.sortedByDescending { it.value }.take(8).map { it.key to it.value }
+    // Todas las categorías suman al 100%: si hay más de ocho, el resto
+    // aparece agrupado explícitamente, nunca desaparece del gráfico.
+    val sortedCategories = spending.entries.sortedByDescending { it.value }
+        .map { it.key to it.value }
+    val categories = if (sortedCategories.size <= 8) sortedCategories else
+        sortedCategories.take(7) +
+            ("Otras categorías" to sortedCategories.drop(7).sumOf { it.second })
+    val totalCategorySpend = spending.values.sum().coerceAtLeast(1L)
     val months = (5 downTo 0).map { month.minusMonths(it.toLong()) }
     val history = months.map { CategoryBudgetStore.spending(movements, it).values.sum() }
     val maximum = history.maxOrNull()?.coerceAtLeast(1L) ?: 1L
@@ -68,8 +75,9 @@ fun CategoryInsightsScreen(movements: List<Movement>, onBack: () -> Unit) {
     var deleteBudget by remember { mutableStateOf<CategoryBudget?>(null) }
     var feedback by remember { mutableStateOf("") }
     val suggestedCategories = (
-        spending.keys + movements.filter { it.amountClp < 0 }.map { it.category } +
-        ExpenseCategories.predefined + listOf("Alimentación", "Luz", "Agua", "Internet", "Transporte", "Hogar", "Salud", "Otros")
+        spending.keys + movements.filter { it.amountClp < 0 }.map { ExpenseCategories.flat(it.category) } +
+        ExpenseCategories.predefined + ExpenseCategories.all(context) +
+        listOf("Alimentación", "Luz", "Agua", "Internet", "Transporte", "Hogar", "Salud", "Otros")
     ).map { it.trim() }.filter { it.isNotBlank() }.distinct().sorted()
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -97,23 +105,36 @@ fun CategoryInsightsScreen(movements: List<Movement>, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Card {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Gastos por categoría · " + month.monthValue + "/" + month.year,
+                    Text("Gráfico de gastos por categoría · " + month.monthValue + "/" + month.year,
                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(clp.format(spending.values.sum()), style = MaterialTheme.typography.headlineMedium)
+                    Text("Distribución de tus gastos del mes",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall)
                     if (categories.isEmpty()) Text("No hay gastos para este mes.")
                     else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            SpendingDonut(categories)
-                            Spacer(Modifier.width(20.dp))
-                            Column(Modifier.weight(1f)) {
-                                categories.take(4).forEachIndexed { i, pair ->
+                            Box(Modifier.size(150.dp), contentAlignment = Alignment.Center) {
+                                SpendingDonut(categories)
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("Gastos", style = MaterialTheme.typography.labelSmall)
+                                    Text("100%", style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                categories.forEachIndexed { i, pair ->
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Box(Modifier.size(9.dp).background(categoryColors[i], RoundedCornerShape(3.dp)))
+                                        Box(Modifier.size(9.dp).background(
+                                            categoryColors[i % categoryColors.size], RoundedCornerShape(3.dp)))
                                         Spacer(Modifier.width(5.dp))
-                                        Column {
+                                        Column(Modifier.weight(1f)) {
                                             Text(pair.first, maxLines = 1,
                                                 style = MaterialTheme.typography.labelSmall)
-                                            Text(clp.format(pair.second), style = MaterialTheme.typography.bodySmall)
+                                            Text("${(pair.second * 100.0 / totalCategorySpend).toInt()}% · " +
+                                                clp.format(pair.second),
+                                                style = MaterialTheme.typography.labelSmall)
                                         }
                                     }
                                 }
@@ -172,7 +193,7 @@ fun CategoryInsightsScreen(movements: List<Movement>, onBack: () -> Unit) {
                         val amount = CategoryBudgetStore.spentFor(spending, budget.category)
                         val ratio = amount.toDouble() / budget.limitClp
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(budget.category, modifier = Modifier.weight(1f),
+                            Text(ExpenseCategories.flat(budget.category), modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.titleSmall)
                             TextButton(onClick = { edit(budget) }) { Text("Editar") }
                             TextButton(onClick = { deleteBudget = budget }) { Text("×") }
