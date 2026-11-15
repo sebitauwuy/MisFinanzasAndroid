@@ -193,7 +193,7 @@ fun CategoryInsightsScreen(movements: List<Movement>, onBack: () -> Unit) {
                         val amount = CategoryBudgetStore.spentFor(spending, budget.category)
                         val ratio = amount.toDouble() / budget.limitClp
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(budget.category, modifier = Modifier.weight(1f),
+                            Text(ExpenseCategories.flat(budget.category), modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.titleSmall)
                             TextButton(onClick = { edit(budget) }) { Text("Editar") }
                             TextButton(onClick = { deleteBudget = budget }) { Text("×") }
