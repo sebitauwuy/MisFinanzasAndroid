@@ -57,7 +57,7 @@ object ExpenseCategories {
         if (old.any { it.equals(name, true) }) return true
         if (old.size >= LIMIT) return false
         val array = JSONArray()
-        (old + name).forEach(array::put)
+        (old + name).forEach { array.put(it) }
         return preferences(context).edit().putString(KEY, array.toString()).commit()
     }
 
