@@ -6,6 +6,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -29,6 +31,10 @@ fun GmailMailSection(db: FinanceDatabase) {
     var message by remember { mutableStateOf("") }
     var confirmDisconnect by remember { mutableStateOf(false) }
     var showSetupHelp by remember { mutableStateOf(false) }
+    var showChileSettings by remember { mutableStateOf(false) }
+    var chileLast4 by remember {
+        mutableStateOf(GmailBankSync.bancoChileLast4(context))
+    }
 
     fun consume(result: AuthorizationResult) {
         val token = result.accessToken
@@ -154,6 +160,33 @@ fun GmailMailSection(db: FinanceDatabase) {
                 }
             }
         }
+        TextButton(onClick = { showChileSettings = !showChileSettings }) {
+            Text(if (showChileSettings) "Ocultar datos bancarios"
+                else "¿Recibes correos de Banco de Chile? (opcional)")
+        }
+        if (showChileSettings) {
+            OutlinedTextField(
+                value = chileLast4,
+                onValueChange = { chileLast4 = it.filter(Char::isDigit).take(4) },
+                label = { Text("Últimos 4 dígitos de la cuenta de Banco de Chile") },
+                supportingText = {
+                    Text("Solo para identificar avisos de esta cuenta recibidos en Gmail. " +
+                        "No requiere conectar Outlook.")
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedButton(
+                enabled = !busy && (chileLast4.isBlank() || chileLast4.length == 4),
+                onClick = {
+                    message = if (GmailBankSync.setBancoChileLast4(context, chileLast4))
+                        "Cuenta Banco de Chile guardada para Gmail."
+                    else "Debes ingresar cuatro dígitos o dejar vacío."
+                }
+            ) { Text("Guardar cuenta de Gmail") }
+        }
+
         if (message.isNotBlank()) {
             Surface(
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
