@@ -278,11 +278,15 @@ object PdfStatementReader {
                 "El total de abonos no coincide; no se importó nada."
             }
         }
-        summaryAmount("Total Cargos")?.let { total ->
-            require(total == parsed.sumOf { it.cargo }) {
-                "El total de cargos no coincide; no se importó nada."
-            }
-        }
+        // BancoEstado muestra los giros por separado de "Total Cargos",
+        // aunque ambos aparecen como débitos en la columna Cargos de la tabla.
+        // Comparar solo con "Total Cargos" rechazaba cartolas correctas
+        // con retiros de cajero (p. ej., 80.000 + 20.000 = 100.000).
+        CuentaRutSummaryValidation.checkOutgoing(
+            totalCargos = summaryAmount("Total Cargos"),
+            totalGiros = summaryAmount("Total Giros"),
+            parsedOutgoing = parsed.sumOf { it.cargo }
+        )
         summaryAmount("Saldo Final")?.let { balance ->
             require(balance == parsed.first().saldo) {
                 "El saldo final no coincide; no se importó nada."
