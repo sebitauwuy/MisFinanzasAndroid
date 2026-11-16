@@ -62,16 +62,16 @@ class MonthlyCashflowProjectionTest {
     @Test fun avoidsChargingGroupedWaterAndElectricityAgain() {
         val r = forecast(
             movements = listOf(movement(37,
-                "Pago de cuentas: Aguas Andinas y CGE", -46_010L,
+                "Pago de cuentas: Agua Hogar y Luz Hogar", -20_500L,
                 "2026-11-15")),
             plans = listOf(
-                planned(1, "Aguas Andinas", 12_010L, "2026-11-16"),
-                planned(2, "CGE", 34_000L, "2026-11-16")
+                planned(1, "Agua Hogar", 12_500L, "2026-11-16"),
+                planned(2, "Luz Hogar", 8_000L, "2026-11-16")
             )
         )
         assertEquals(0L, r.plannedPaymentsClp)
         assertEquals(2, r.alreadyRegisteredCount)
-        assertEquals(46_010L, r.alreadyRegisteredClp)
+        assertEquals(20_500L, r.alreadyRegisteredClp)
     }
 
     @Test fun weeklyPlansUseRemainingCalendarOccurrences() {
@@ -85,6 +85,16 @@ class MonthlyCashflowProjectionTest {
             planned(due = "2026-10-13", amount = 15_000L, frequency = "SEMANAL")))
         // One old unpaid due date + next 17 and 24 November.
         assertEquals(45_000L, r.plannedPaymentsClp)
+    }
+
+    @Test fun previouslyRecordedWeeklyPaymentDoesNotHideNextInstallment() {
+        val plan = planned(due = "2026-11-17", frequency = "SEMANAL")
+            .copy(lastPaidDate = "2026-11-15", lastPaymentMovementId = 42)
+        val r = forecast(
+            plans = listOf(plan),
+            movements = listOf(movement(42, "🌐 Internet", -20_000L, "2026-11-15"))
+        )
+        assertEquals(40_000L, r.plannedPaymentsClp) // 17 and 24 Nov
     }
 
     @Test fun creditAccountPlanDoesNotReduceCashBeforeCardPayment() {
