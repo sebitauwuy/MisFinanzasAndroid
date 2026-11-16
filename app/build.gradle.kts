@@ -11,7 +11,7 @@ android {
         applicationId = "cl.personal.finanzas"
         minSdk = 26
         targetSdk = 35
-        versionCode = 48
+        versionCode = 49
         versionName = "1.14"
     }
     signingConfigs {

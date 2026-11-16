@@ -11,7 +11,11 @@ configurar OAuth en Google Cloud.
 2. En APIs y servicios > Biblioteca, habilita **Gmail API**.
 3. En Google Auth Platform > Branding, completa los datos de la aplicación.
 4. En Audience, elige **External > Testing** (para pruebas privadas) y agrega
-   **la dirección Gmail exacta** que usarás a los usuarios de prueba.
+   **cada cuenta Gmail que usará Mis Finanzas**, incluyendo la de familiares
+   o amigos que la prueben. Por ejemplo, si otra persona instala la APK,
+   su Gmail debe ser usuario de prueba: que pueda elegir la cuenta en Android
+   no significa que Google haya autorizado el permiso.
+   Esto lo configura el desarrollador UNA vez para el proyecto, no cada usuario.
 5. En Data Access, agrega el scope
    `https://www.googleapis.com/auth/gmail.readonly`.
 6. En Google Auth Platform > Clients > Create Client, selecciona **Android**:
@@ -37,6 +41,15 @@ configurar OAuth en Google Cloud.
   no compartas contraseñas, códigos OAuth ni tokens.
 - Si Google Cloud se acaba de configurar, algunos cambios pueden tardar
   en propagarse.
+
+**No hace falta conectar Outlook para usar Gmail.** Si se desean reconocer
+avisos de Banco de Chile que llegan a Gmail, abrir la opción
+«¿Recibes correos de Banco de Chile?» e ingresar allí los últimos cuatro
+dígitos de esa cuenta (independientes del Outlook de otra persona).
+
+Si Google autorizó la cuenta pero falló la consulta a Gmail API, la aplicación
+puede mostrar la cuenta como «vinculada» junto al error de sincronización.
+Esto separa un fallo de OAuth de un problema de Gmail API.
 
 No se registran movimientos sin revisión previa y no se modifica la
 conexión existente de Outlook.
