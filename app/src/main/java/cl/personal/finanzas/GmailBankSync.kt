@@ -35,6 +35,14 @@ object GmailBankSync {
 
     fun email(context: Context): String = prefs(context).getString("email", "").orEmpty()
     fun linked(context: Context) = email(context).isNotBlank()
+    // Los avisos Banco de Chile recibidos en Gmail se asocian a esta cuenta,
+    // independientemente de la configuración Microsoft/Outlook.
+    fun bancoChileLast4(context: Context): String =
+        prefs(context).getString("chile_last4", "").orEmpty()
+    fun setBancoChileLast4(context: Context, digits: String): Boolean {
+        if (digits.isNotBlank() && !Regex("""\\d{4}""").matches(digits)) return false
+        return prefs(context).edit().putString("chile_last4", digits).commit()
+    }
     fun cutoff(context: Context) = prefs(context).getString(
         "cutoff", LocalDate.now().minusDays(30).toString()
     ).orEmpty()
@@ -264,7 +272,7 @@ object GmailBankSync {
             val graph = toGraphMessage(mail)
             val sender = graph.optJSONObject("sender")
                 ?.optJSONObject("emailAddress")?.optString("address").orEmpty()
-            val parsed = ChileBankEmailParser.parse(graph, OutlookGraph.accountLast4(context))
+            val parsed = ChileBankEmailParser.parse(graph, bancoChileLast4(context))
                 ?: tenpoCandidate(graph)
             if (parsed == null) {
                 if (isTenpo(sender)) unknownTenpo++
