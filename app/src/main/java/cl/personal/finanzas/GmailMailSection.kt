@@ -28,6 +28,7 @@ fun GmailMailSection(db: FinanceDatabase) {
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     var confirmDisconnect by remember { mutableStateOf(false) }
+    var showSetupHelp by remember { mutableStateOf(false) }
 
     fun consume(result: AuthorizationResult) {
         val token = result.accessToken
@@ -49,7 +50,14 @@ fun GmailMailSection(db: FinanceDatabase) {
                             "se omitieron por seguridad."
                     else "Los avisos reconocidos están en Para revisar."
             } catch (error: Exception) {
-                message = "Gmail: ${error.message ?: "no se pudo sincronizar"}"
+                // La cuenta puede quedar vinculada aun si una consulta a Gmail falla.
+                email = GmailBankSync.email(context)
+                message = if (email.isNotBlank())
+                    "Cuenta Gmail vinculada, pero no se pudo buscar correos. " +
+                        (error.message ?: "Error de sincronización.")
+                else
+                    "No se pudo conectar Gmail: " +
+                        (error.message ?: "Fallo en la autorización.")
             } finally {
                 busy = false
             }
@@ -124,7 +132,7 @@ fun GmailMailSection(db: FinanceDatabase) {
                 "Nunca modifica saldos sin confirmación.",
             style = MaterialTheme.typography.bodySmall
         )
-        Text(if (email.isBlank()) "Gmail: sin conectar" else "Gmail: $email",
+        Text(if (email.isBlank()) "Gmail: sin vincular" else "Cuenta Gmail vinculada: $email",
             style = MaterialTheme.typography.bodyMedium)
         CalendarDateField(cutoff, { cutoff = it }, "Buscar operaciones posteriores a")
         OutlinedButton(
@@ -146,17 +154,39 @@ fun GmailMailSection(db: FinanceDatabase) {
                 }
             }
         }
+        if (message.isNotBlank()) {
+            Surface(
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    message,
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
         Text(
-            "Solo se solicita gmail.readonly. No se almacenan contraseñas, tokens " +
-                "ni el contenido completo de los correos. Para autorizar: habilita Gmail API, " +
-                "crea un cliente OAuth Android con el paquete cl.personal.finanzas y el SHA-1 " +
-                "de la APK firmada, configura el permiso gmail.readonly y añade tu Gmail " +
-                "como usuario de prueba en Google Cloud. Elegir una cuenta no basta " +
-                "si Google aún no concede el permiso.",
-            style = MaterialTheme.typography.bodySmall
+            "Gmail necesita autorización de Google. Outlook no es obligatorio.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        if (message.isNotBlank())
-            Text(message, style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = { showSetupHelp = !showSetupHelp }) {
+            Text(if (showSetupHelp) "Ocultar ayuda de Gmail" else "¿No se conecta Gmail?")
+        }
+        if (showSetupHelp) {
+            Text(
+                "Para el dueño de la aplicación: habilita Gmail API en Google Cloud, " +
+                    "registra un cliente OAuth Android con el paquete cl.personal.finanzas " +
+                    "y SHA-1 de la APK firmada, agrega gmail.readonly y añade como " +
+                    "usuarios de prueba cada dirección Gmail que vaya a conectar. " +
+                    "La persona que usa la app no necesita configurar Google Cloud. " +
+                    "No compartas claves, contraseñas ni tokens.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
     if (confirmDisconnect) {
         AlertDialog(
