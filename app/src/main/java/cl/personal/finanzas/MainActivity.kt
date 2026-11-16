@@ -2511,7 +2511,7 @@ fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, sco
         }
         item {
             Text(if (kind == "Pago") "Cuotas y pagos pendientes" else "Reembolsos por cobrar", style = MaterialTheme.typography.titleLarge)
-            Text(if (kind == "Pago") "Ingresa el valor de CADA cuota y la fecha del primer vencimiento. Para gastos recurrentes, registra cada mes como un pago separado." else "Registra dinero que otra persona debe devolverte.", style = MaterialTheme.typography.bodySmall)
+            Text(if (kind == "Pago") "Registra cada cuota con su valor y primer vencimiento. Estas cuotas se incluyen automáticamente en la proyección de fin de mes. «Pagar una cuota» actualiza la deuda, pero NO descuenta dinero: registra también la salida en Movimientos o impórtala desde el banco, sin duplicarla." else "Registra dinero que otra persona debe devolverte. Solo se suma a la proyección si activas «Incluir cobros pendientes» en Inicio.", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(title, { title = it }, label = { Text(if (kind == "Pago") "Compra o cuenta" else "Persona y motivo") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text(if (kind == "Pago") "Valor de cada cuota CLP" else "Monto a cobrar CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             AccountPicker(account, { account = it }, availableAccounts)
