@@ -281,7 +281,7 @@ object PdfStatementReader {
         // BancoEstado muestra los giros por separado de "Total Cargos",
         // aunque ambos aparecen como débitos en la columna Cargos de la tabla.
         // Comparar solo con "Total Cargos" rechazaba cartolas correctas
-        // con retiros de cajero (p. ej., 301.511 + 60.000 = 361.511).
+        // con retiros de cajero (p. ej., 80.000 + 20.000 = 100.000).
         CuentaRutSummaryValidation.checkOutgoing(
             totalCargos = summaryAmount("Total Cargos"),
             totalGiros = summaryAmount("Total Giros"),
