@@ -5,7 +5,7 @@ package cl.personal.finanzas
  * y "Total Giros". Ambos tipos son salidas (débito) en el listado de
  * movimientos, y ambos se deben comprobar antes de aceptar la importación.
  *
- * Ejemplo: cargos 301.511 + giros 60.000 = movimientos negativos 361.511.
+ * Ejemplo ficticio: cargos 80.000 + giros 20.000 = salidas por 100.000.
  */
 internal object CuentaRutSummaryValidation {
     fun checkOutgoing(
