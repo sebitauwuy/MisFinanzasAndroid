@@ -561,9 +561,10 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                         color = MaterialTheme.colorScheme.error)
                     Text("No se importaron movimientos ni se modificaron saldos.",
                         style = MaterialTheme.typography.bodyMedium)
-                    Text("Si es una cartola de CuentaRUT, necesitamos identificar " +
-                        "los encabezados y el orden de las columnas de ese PDF. " +
-                        "Puedes compartir una captura de la tabla ocultando los datos personales.",
+                    Text("Comprueba que elegiste la cuenta del documento y que " +
+                        "el PDF corresponde a un formato reconocido. Si continúa " +
+                        "el problema, puedes compartir una captura de la tabla " +
+                        "ocultando datos personales, números de cuenta y códigos.",
                         style = MaterialTheme.typography.bodySmall)
                 }
             },
@@ -1213,8 +1214,8 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             }
                             Spacer(Modifier.height(12.dp))
                             FinanceSettingsGroup("Importar documentos", "Cartolas PDF, CSV, TXT y XLS", expandedAtStart = true) {
-                            Text("Selecciona la cuenta o tarjeta a la que pertenecen los movimientos. " +
-                                "El formato de archivo no limita el tipo de cuenta.",
+                            Text("Selecciona la cuenta que corresponde al documento. " +
+                                "Los PDF de MACHBANK se importan en MACH y los de CuentaRUT en BancoEstado.",
                                 style = MaterialTheme.typography.bodySmall)
                             AccountPicker(csvAccount, { csvAccount = it }, visibleAccounts)
                             Button(onClick = {
@@ -1222,10 +1223,10 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                                     "application/vnd.ms-excel", "text/*", "application/csv",
                                     "application/octet-stream", "*/*"))
                             }, modifier = Modifier.fillMaxWidth()) { Text("Importar cartola · PDF / XLS / TXT / CSV") }
-                            Text("Los PDF con contraseña piden la clave del archivo. Se reconocen " +
-                                "tablas de movimientos con cargos y abonos (incluida CuentaRUT, " +
-                                "cuando el formato permite identificar las columnas), TXT Banco de Chile, " +
-                                "XLS de débito Falabella y CSV de fecha, descripción y monto.",
+                            Text("Los PDF con contraseña piden solo la clave del archivo. " +
+                                "Se reconocen cartolas MACHBANK y CuentaRUT, y otras tablas " +
+                                "con columnas identificables. También TXT Banco de Chile, " +
+                                "XLS débito Falabella y CSV de fecha, descripción y monto.",
                                 style = MaterialTheme.typography.bodySmall)
                             Text("Los PDF de cupos de tarjetas Banco de Chile se muestran como resumen " +
                                 "informativo. No se importan como cargos de cuenta.",
