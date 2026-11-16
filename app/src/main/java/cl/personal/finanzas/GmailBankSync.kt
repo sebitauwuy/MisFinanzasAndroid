@@ -89,10 +89,32 @@ object GmailBankSync {
             conn.setRequestProperty("Authorization", "Bearer $token")
             conn.setRequestProperty("Accept", "application/json")
             val status = conn.responseCode
-            require(status in 200..299) {
-                if (status == 401 || status == 403)
-                    "Permiso Gmail vencido o pendiente. Vuelve a autorizar la cuenta."
-                else "Gmail respondió HTTP $status"
+            if (status !in 200..299) {
+                // El código 403 no significa necesariamente "permiso vencido":
+                // también puede indicar Gmail API deshabilitada o acceso restringido.
+                val detail = runCatching {
+                    val body = conn.errorStream?.bufferedReader(Charsets.UTF_8)
+                        ?.use { it.readText().take(4096) }.orEmpty()
+                    val error = JSONObject(body).optJSONObject("error")
+                    error?.optJSONArray("errors")?.optJSONObject(0)
+                        ?.optString("reason").orEmpty().ifBlank {
+                            error?.optString("status").orEmpty()
+                        }
+                }.getOrDefault("").lowercase(Locale.ROOT)
+                val reason = when {
+                    status == 401 -> "Google rechazó el acceso (401). Vuelve a autorizar Gmail."
+                    status == 403 && (detail.contains("accessnotconfigured") ||
+                        detail.contains("servicedisabled")) ->
+                        "Gmail API no está habilitada en el proyecto Google Cloud (403)."
+                    status == 403 && (detail.contains("insufficient") ||
+                        detail.contains("permission")) ->
+                        "Falta el permiso de lectura Gmail en Google Cloud o en la autorización (403)."
+                    status == 403 -> "Google denegó el acceso a Gmail (403). " +
+                        "Revisa usuario de prueba, Gmail API y autorización OAuth."
+                    status == 429 -> "Gmail limitó temporalmente las consultas (429)."
+                    else -> "Gmail respondió con error HTTP $status."
+                }
+                error(reason)
             }
             val buffer = ByteArrayOutputStream()
             conn.inputStream.use { input ->
@@ -217,6 +239,11 @@ object GmailBankSync {
         require(saved.isBlank() || saved.equals(mailbox, true)) {
             "La cuenta autorizada no coincide con la vinculada. Desconecta Gmail primero."
         }
+        // La vinculación depende de la identidad autorizada, NO de que la
+        // primera búsqueda de correos termine sin errores.
+        if (saved.isBlank()) require(saveEmail(context, mailbox)) {
+            "Google autorizó Gmail, pero no se pudo recordar la cuenta."
+        }
         val since = maxOf(LocalDate.now().minusDays(30),
             LocalDate.parse(cutoff(context))).toString().replace("-", "/")
         val search = "{from:tenpo.cl from:bancochile.cl from:correo.bancoestado.cl} after:$since"
@@ -263,9 +290,6 @@ object GmailBankSync {
                 added++
                 if (duplicate) duplicates++
             }
-        }
-        if (saved.isBlank()) require(saveEmail(context, mailbox)) {
-            "No se pudo guardar el correo autorizado."
         }
         GmailScanResult(mailbox, list.length(), recognized, added, duplicates, unknownTenpo)
     }
