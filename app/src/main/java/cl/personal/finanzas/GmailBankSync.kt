@@ -40,7 +40,7 @@ object GmailBankSync {
     fun bancoChileLast4(context: Context): String =
         prefs(context).getString("chile_last4", "").orEmpty()
     fun setBancoChileLast4(context: Context, digits: String): Boolean {
-        if (digits.isNotBlank() && !Regex("""\\d{4}""").matches(digits)) return false
+        if (digits.isNotBlank() && (digits.length != 4 || !digits.all(Char::isDigit))) return false
         return prefs(context).edit().putString("chile_last4", digits).commit()
     }
     fun cutoff(context: Context) = prefs(context).getString(
