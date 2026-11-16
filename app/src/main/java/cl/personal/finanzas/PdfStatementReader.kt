@@ -171,11 +171,15 @@ object PdfStatementReader {
         // PDFBox puede entregar espacios como separaciones visuales, sin
         // glifos de espacio. Para reconocer títulos no dependemos de ellos.
         val summaryHeaders = lines.filter { line ->
-            val compact = line.normalized.replace(" ", "")
-            compact.contains("saldoinicialdelperiodo") &&
-                compact.contains("totalingresosdelperiodo") &&
-                compact.contains("totalegresosdelperiodo") &&
-                compact.contains("saldocontablefinaldelperiodo")
+            // El orden de glifos puede entregar "fnial" en vez de "final".
+            // Identificamos las cuatro celdas del encabezado por su posición
+            // y palabras estables, sin dejar de exigir todos los totales.
+            MachStatementValidation.isSummaryHeader(
+                initial = line.cell(30f, 169f),
+                income = line.cell(169f, 311f),
+                outgoing = line.cell(311f, 425f),
+                closing = line.cell(425f, 602f)
+            )
         }
         require(summaryHeaders.isNotEmpty()) {
             "No se reconoció el resumen de saldos MACH; no se importó nada."
