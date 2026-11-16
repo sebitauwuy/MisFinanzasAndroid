@@ -1,10 +1,39 @@
 package cl.personal.finanzas
 
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.time.LocalDate
 
 class MachStatementValidationTest {
+    @Test fun machSummaryDetectedWhenLettersAreCorrect() {
+        assertTrue(MachStatementValidation.isSummaryHeader(
+            "Saldo inicial del periodo", "Total ingresos del periodo",
+            "Total egresos del periodo", "Saldo contable final del periodo"
+        ))
+    }
+
+    @Test fun machSummaryDetectedWhenPdfGlyphsSwapLetters() {
+        // Caso real del extractor de texto: ordenar caracteres según la
+        // coordenada X puede producir "fnial". Solo textos ficticios.
+        assertTrue(MachStatementValidation.isSummaryHeader(
+            "Saldoinicialdelperiodo", "Totalingresosdelperiodo",
+            "Totalegresosdelperiodo", "Saldocontablefnialdelperiodo"
+        ))
+    }
+
+    @Test fun machSummaryRequiresAllFourBankColumnsInOrder() {
+        assertFalse(MachStatementValidation.isSummaryHeader(
+            "Saldo inicial del periodo", "Total ingresos del periodo",
+            "Total egresos del periodo", "Otro saldo"
+        ))
+        assertFalse(MachStatementValidation.isSummaryHeader(
+            "Saldo inicial del periodo", "Total egresos del periodo",
+            "Total ingresos del periodo", "Saldo contable final del periodo"
+        ))
+    }
+
     private fun validRows() = listOf(
         MachStatementRow(LocalDate.of(2026, 9, 29), "Compra de ejemplo",
             outgoingClp = 2_000L, incomingClp = 0L, balanceClp = 98_000L),
