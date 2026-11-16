@@ -108,16 +108,22 @@ object PdfStatementReader {
             val rows = lines(extractor.glyphs)
             val isCuentaRut = Regex("""CARTOLA\s+CUENTARUT""", RegexOption.IGNORE_CASE)
                 .containsMatchIn(fullText)
-            val movements = if (isCuentaRut)
-                parseCuentaRut(fullText, rows, account)
-            else parseTable(rows, account)
+            val isMach = Regex("""CARTOLA\s+CUENTA\s+MACHBANK""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(fullText)
+            val movements = when {
+                isCuentaRut -> parseCuentaRut(fullText, rows, account)
+                isMach -> parseMach(rows, account)
+                else -> parseTable(rows, account)
+            }
             require(movements.isNotEmpty()) {
                 "No se identificaron filas completas de fecha, descripción, cargos y abonos. " +
                     "El PDF se pudo abrir, pero su diseño aún no está reconocido; no se importó nada."
             }
-            val source = if (fullText.contains("CuentaRUT", ignoreCase = true) ||
-                fullText.contains("BancoEstado", ignoreCase = true)) "CuentaRUT / BancoEstado"
-                else "PDF de movimientos"
+            val source = when {
+                isCuentaRut -> "CuentaRUT / BancoEstado"
+                isMach -> "MACH / MACHBANK"
+                else -> "PDF de movimientos"
+            }
             ImportedStatement.Movements(movements, source)
         }
     }
@@ -147,6 +153,143 @@ object PdfStatementReader {
         return Columns(date, detail, debit, credit, balance)
     }
 
+
+    /**
+     * MACHBANK cuenta corriente: Fecha operación | Descripción | Cambio |
+     * Moneda | Egreso | Ingreso | Saldo.
+     *
+     * La columna "Cambio" puede ser 1 o un tipo USD; Egreso, Ingreso y Saldo
+     * están expresados en CLP. Los encabezados y saldos se repiten por página.
+     * Conserva operaciones anteriores al inicio nominal del período cuando
+     * el propio banco las incluye en su resumen; de otro modo no cuadraría.
+     */
+    private fun parseMach(lines: List<Line>, account: String): List<Movement> {
+        require(account == "MACH") {
+            "Esta cartola corresponde a MACHBANK. Selecciona MACH antes de importar."
+        }
+
+        val summaryHeaders = lines.filter { line ->
+            line.normalized.contains("saldo inicial del periodo") &&
+                line.normalized.contains("total ingresos del periodo") &&
+                line.normalized.contains("total egresos del periodo") &&
+                line.normalized.contains("saldo contable final del periodo")
+        }
+        require(summaryHeaders.isNotEmpty()) {
+            "No se reconoció el resumen de saldos MACH; no se importó nada."
+        }
+
+        fun summary(header: Line): List<Long> {
+            val headerY = header.chars.first().y
+            val amounts = lines.firstOrNull { row ->
+                row.page == header.page &&
+                    row.chars.first().y - headerY in 9f..34f &&
+                    row.cell(30f, 169f).isNotBlank() &&
+                    row.cell(169f, 311f).isNotBlank() &&
+                    row.cell(311f, 425f).isNotBlank() &&
+                    row.cell(425f, 602f).isNotBlank()
+            } ?: error("Faltan los importes del resumen MACH; no se importó nada.")
+            return listOf(
+                readClp(amounts.cell(30f, 169f)),
+                readClp(amounts.cell(169f, 311f)),
+                readClp(amounts.cell(311f, 425f)),
+                readClp(amounts.cell(425f, 602f))
+            )
+        }
+        val totals = summary(summaryHeaders.first())
+        require(summaryHeaders.all { summary(it) == totals }) {
+            "El resumen MACH no coincide entre las páginas; no se importó nada."
+        }
+
+        data class Parsed(
+            val page: Int, val y: Float, val date: LocalDate,
+            val description: StringBuilder, val outgoing: Long,
+            val incoming: Long, val balance: Long
+        )
+        val parsed = mutableListOf<Parsed>()
+        val rowDatePattern = Regex("""^\d{2}/\d{2}/\d{4}$""")
+        var currentPage = -1
+        var inTable = false
+
+        for (line in lines) {
+            if (line.page != currentPage) {
+                currentPage = line.page
+                inTable = false
+            }
+            val label = line.normalized
+            if (label.contains("fecha operacion") && label.contains("descripcion") &&
+                label.contains("egreso") && label.contains("ingreso") &&
+                label.contains("saldo")) {
+                inTable = true
+                continue
+            }
+            if (!inTable) continue
+            if (label.contains("informacion general")) {
+                inTable = false
+                continue
+            }
+            val rawDate = line.cell(30f, 117f).replace(" ", "").trim()
+            if (rowDatePattern.matches(rawDate)) {
+                val date = parseDate(rawDate)
+                    ?: error("Una fecha MACH no es válida; no se importó nada.")
+                val description = line.cell(118f, 327f)
+                    .replace(Regex("""\s+"""), " ").trim()
+                val currency = line.cell(378f, 428f).replace(" ", "").trim()
+                require(currency == "CLP" || currency == "USD") {
+                    "No se reconoce la moneda de una operación MACH; no se importó nada."
+                }
+                val outgoing = readClp(line.cell(428f, 478f))
+                val incoming = readClp(line.cell(478f, 531f))
+                val rawBalance = line.cell(531f, 602f)
+                require(rawBalance.isNotBlank()) {
+                    "Una operación MACH no tiene saldo; no se importó nada."
+                }
+                require(description.isNotBlank() &&
+                    (outgoing > 0L) != (incoming > 0L)) {
+                    "Una operación MACH no tiene cargo o abono identificable; no se importó nada."
+                }
+                parsed += Parsed(
+                    line.page, line.chars.first().y, date,
+                    StringBuilder(description), outgoing, incoming, readClp(rawBalance)
+                )
+                require(parsed.size <= 5000) { "Demasiados movimientos MACH." }
+            } else {
+                // Varias descripciones MACH ocupan dos líneas. La segunda
+                // no tiene fecha, monto, moneda ni saldo, solo descripción.
+                val previous = parsed.lastOrNull()
+                val y = line.chars.first().y
+                if (previous != null && previous.page == line.page &&
+                    y - previous.y in 0f..20f &&
+                    line.cell(30f, 117f).isBlank() &&
+                    line.cell(327f, 602f).isBlank()) {
+                    val continuation = line.cell(118f, 327f)
+                        .replace(Regex("""\s+"""), " ").trim()
+                    if (continuation.isNotBlank()) {
+                        previous.description.append(' ').append(continuation)
+                    }
+                }
+            }
+        }
+        val validated = parsed.map {
+            MachStatementRow(it.date, it.description.toString().trim(),
+                it.outgoing, it.incoming, it.balance)
+        }
+        MachStatementValidation.check(
+            openingClp = totals[0],
+            totalIncomingClp = totals[1],
+            totalOutgoingClp = totals[2],
+            closingClp = totals[3],
+            rows = validated
+        )
+        return validated.map {
+            Movement(
+                account = account,
+                description = it.description,
+                amountClp = it.incomingClp - it.outgoingClp,
+                date = it.date.toString(),
+                category = "Importado"
+            )
+        }
+    }
 
     /**
      * Lector del formato real BancoEstado:
