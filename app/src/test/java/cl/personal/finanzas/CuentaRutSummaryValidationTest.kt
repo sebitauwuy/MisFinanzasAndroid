@@ -11,27 +11,27 @@ class CuentaRutSummaryValidationTest {
     fun acceptsSeparateCashWithdrawalsInBankTotals() {
         // La suma de los 36 cargos individuales incluye giros de cajero.
         CuentaRutSummaryValidation.checkOutgoing(
-            totalCargos = 301_511L,
-            totalGiros = 60_000L,
-            parsedOutgoing = 361_511L
+            totalCargos = 80_000L,
+            totalGiros = 20_000L,
+            parsedOutgoing = 100_000L
         )
     }
 
     @Test
     fun acceptsCartolaWithoutWithdrawals() {
         CuentaRutSummaryValidation.checkOutgoing(
-            totalCargos = 301_511L,
+            totalCargos = 80_000L,
             totalGiros = 0L,
-            parsedOutgoing = 301_511L
+            parsedOutgoing = 80_000L
         )
     }
 
     @Test
     fun doesNotRequireOptionalWithdrawalTotalInLegacyPdf() {
         CuentaRutSummaryValidation.checkOutgoing(
-            totalCargos = 90_000L,
+            totalCargos = 91_000L,
             totalGiros = null,
-            parsedOutgoing = 90_000L
+            parsedOutgoing = 91_000L
         )
     }
 
@@ -39,9 +39,9 @@ class CuentaRutSummaryValidationTest {
     fun rejectsEvenOnePesoMismatch() {
         assertThrows(IllegalArgumentException::class.java) {
             CuentaRutSummaryValidation.checkOutgoing(
-                totalCargos = 301_511L,
-                totalGiros = 60_000L,
-                parsedOutgoing = 361_510L
+                totalCargos = 80_000L,
+                totalGiros = 20_000L,
+                parsedOutgoing = 99_999L
             )
         }
     }
@@ -57,9 +57,9 @@ class CuentaRutSummaryValidationTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             CuentaRutSummaryValidation.checkOutgoing(
-                totalCargos = 301_511L,
-                totalGiros = -60_000L,
-                parsedOutgoing = 241_511L
+                totalCargos = 80_000L,
+                totalGiros = -20_000L,
+                parsedOutgoing = 60_000L
             )
         }
     }
