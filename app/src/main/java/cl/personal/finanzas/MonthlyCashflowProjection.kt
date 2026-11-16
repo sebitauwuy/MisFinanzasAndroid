@@ -28,7 +28,8 @@ data class MonthlyCashflowSummary(
 
 object MonthlyCashflowProjection {
     private data class Due(
-        val date: LocalDate, val amount: Long, val title: String, val account: String
+        val date: LocalDate, val amount: Long, val title: String, val account: String,
+        val lastPaidDate: LocalDate? = null, val lastPaymentMovementId: Long = 0L
     )
 
     private fun parsed(raw: String) = runCatching { LocalDate.parse(raw) }.getOrNull()
@@ -83,8 +84,11 @@ object MonthlyCashflowProjection {
                 excludedCredit += plan.estimatedAmountClp * dates.size
                 return@forEach
             }
-            dates.forEach { date -> dues += Due(date, plan.estimatedAmountClp,
-                plan.title, plan.defaultAccount) }
+            dates.forEach { date -> dues += Due(
+                date, plan.estimatedAmountClp, plan.title, plan.defaultAccount,
+                lastPaidDate = parsed(plan.lastPaidDate),
+                lastPaymentMovementId = plan.lastPaymentMovementId
+            ) }
         }
         return dues to excludedCredit
     }
@@ -95,6 +99,8 @@ object MonthlyCashflowProjection {
     ): Boolean {
         val date = parsed(movement.date) ?: return false
         return date >= first && date <= today && near(date, due.date) &&
+            (due.lastPaidDate == null || date.isAfter(due.lastPaidDate)) &&
+            (due.lastPaymentMovementId == 0L || movement.id != due.lastPaymentMovementId) &&
             movement.amountClp == due.amount * sign &&
             (!requireAccount || movement.account == due.account) &&
             nameMatches(due.title, movement.description)
@@ -139,7 +145,11 @@ object MonthlyCashflowProjection {
             if (date < first || date > today) return@forEach
             val matches = unpaidPlans.filter { due ->
                 due.account == movement.account &&
-                    near(date, due.date) && nameMatches(due.title, movement.description)
+                    near(date, due.date) &&
+                    (due.lastPaidDate == null || date.isAfter(due.lastPaidDate)) &&
+                    (due.lastPaymentMovementId == 0L ||
+                        movement.id != due.lastPaymentMovementId) &&
+                    nameMatches(due.title, movement.description)
             }
             if (matches.size < 2 || matches.sumOf { it.amount } != -movement.amountClp)
                 return@forEach
