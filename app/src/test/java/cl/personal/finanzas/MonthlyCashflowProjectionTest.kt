@@ -53,7 +53,7 @@ class MonthlyCashflowProjectionTest {
 
     @Test fun avoidsChargingAlreadyRecordedPlanAgain() {
         val r = forecast(movements = listOf(
-            movement(21, "🌐 Internet", -20_000L, "2026-11-19")),
+            movement(21, "🌐 Internet", -20_000L, "2026-11-16")),
             plans = listOf(planned()))
         assertEquals(0L, r.plannedPaymentsClp)
         assertEquals(1, r.alreadyRegisteredCount)
