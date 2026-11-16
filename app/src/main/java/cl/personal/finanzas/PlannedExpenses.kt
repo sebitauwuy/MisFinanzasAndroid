@@ -84,6 +84,7 @@ fun PlannedExpensesScreen(
     db: FinanceDatabase,
     plans: List<PlannedExpense>,
     movements: List<Movement>,
+    obligations: List<Obligation>,
     visibleAccounts: List<String>,
     onBack: () -> Unit,
     requestedPaymentId: Long? = null,
@@ -151,7 +152,22 @@ fun PlannedExpensesScreen(
     val inactivePlans = plans.filterNot { it.active }.sortedBy { it.title }
     val weeklyEstimate = activePlans.filter { it.frequency == "SEMANAL" }.sumOf { it.estimatedAmountClp }
     val monthlyEstimate = activePlans.filter { it.frequency == "MENSUAL" }.sumOf { it.estimatedAmountClp }
-    val approximateMonth = monthlyEstimate + weeklyEstimate * 52 / 12
+    val approximateMonth = MonthlyCashflowProjection.approximateMonthlyRecurring(plans)
+    // Comparte exactamente las reglas del Inicio: cuotas no pagadas, gastos
+    // previstos reales restantes y comprobaciones para no cobrar dos veces.
+    val projection = remember(today, movements, plans, obligations, visibleAccounts) {
+        MonthlyCashflowProjection.compute(
+            today = today,
+            cashBalanceClp = 0L,
+            cashAccounts = visibleAccounts.filter(AccountCatalog::isCash),
+            movements = movements,
+            obligations = obligations,
+            plans = plans
+        )
+    }
+    val estimatedMonthWithCredits =
+        (approximateMonth + projection.creditPaymentsClp - projection.overlapClp)
+            .coerceAtLeast(0L)
     val dueNow = activePlans.count { runCatching { LocalDate.parse(it.nextDueDate) }.getOrNull()?.isAfter(today) == false }
 
     Column(Modifier.fillMaxSize()) {
@@ -167,13 +183,48 @@ fun PlannedExpensesScreen(
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Presupuesto mensual aproximado", style = MaterialTheme.typography.titleMedium)
-                        Text(clp.format(approximateMonth), style = MaterialTheme.typography.headlineMedium,
+                        Text("Presupuesto mensual con créditos",
+                            style = MaterialTheme.typography.titleMedium)
+                        Text(clp.format(estimatedMonthWithCredits),
+                            style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Gastos recurrentes (promedio)", style = MaterialTheme.typography.bodySmall)
+                            Text(clp.format(approximateMonth), style = MaterialTheme.typography.bodySmall)
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Cuotas y créditos pendientes", style = MaterialTheme.typography.bodySmall)
+                            Text(clp.format(projection.creditPaymentsClp),
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (projection.overlapClp > 0) {
+                            Text("Se excluyeron ${projection.overlapsCount} compromiso(s) repetidos " +
+                                "entre Créditos y Gastos (" + clp.format(projection.overlapClp) + ").",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                        HorizontalDivider()
+                        Text("Falta pagar hasta fin de mes", style = MaterialTheme.typography.titleSmall)
+                        Text(clp.format(projection.totalToPayClp),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold)
+                        Text("Créditos: " + clp.format(projection.creditPaymentsClp) +
+                            " · Gastos previstos: " + clp.format(projection.plannedPaymentsClp),
+                            style = MaterialTheme.typography.bodySmall)
+                        if (projection.alreadyRegisteredCount > 0) {
+                            Text("${projection.alreadyRegisteredCount} pago(s) ya presentes " +
+                                "en Movimientos no se descuentan de nuevo.",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
                         Text("${activePlans.size} gasto(s) activos · ${dueNow} vencido(s) o para hoy",
                             style = MaterialTheme.typography.bodySmall)
-                        Text("Estimación: los gastos semanales se convierten a 52 semanas / 12 meses. No se descuentan del saldo hasta que registres el pago.",
-                            style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "El presupuesto es orientativo: convierte las semanas a 52/12 " +
+                                "e incluye gastos recurrentes del mes aunque ya se hayan pagado. " +
+                                "El importe «Falta pagar» se calcula por vencimientos reales " +
+                                "y es el que se usa en la proyección de Inicio. " +
+                                "Los presupuestos por categoría no se descuentan otra vez.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         Button(onClick = { openEditor(null) }) { Text("+ Agregar gasto previsto") }
                     }
                 }

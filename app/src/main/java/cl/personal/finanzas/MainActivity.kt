@@ -1086,6 +1086,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                             db = db,
                             plans = plannedExpenses,
                             movements = movements,
+                            obligations = obligations,
                             visibleAccounts = visibleAccounts,
                             onBack = { tab = 0 },
                             requestedPaymentId = requestedPlannedPaymentId,
@@ -1585,6 +1586,25 @@ fun Dashboard(
         }.sortedBy { it.second }
     val thisMonth = dueItems(month)
     val dueThisMonth = thisMonth.sumOf { it.first.amountClp }
+    // Proyección de caja compartida con Gastos. No usa el cupo de las tarjetas
+    // como si fuera una factura ni resta metas informativas por categoría.
+    val cashflow = remember(today, balance, cashAccounts, movements, obligations, plannedExpenses) {
+        MonthlyCashflowProjection.compute(
+            today = today,
+            cashBalanceClp = balance,
+            cashAccounts = cashAccounts,
+            movements = movements,
+            obligations = obligations,
+            plans = plannedExpenses
+        )
+    }
+    val projectionPrefs = remember(context) {
+        context.getSharedPreferences("cashflow_projection", android.content.Context.MODE_PRIVATE)
+    }
+    var includeReceivables by remember {
+        mutableStateOf(projectionPrefs.getBoolean("include_unpaid_receivables", false))
+    }
+    val projectedCash = if (includeReceivables) cashflow.optimisticClp else cashflow.projectedClp
     val future = (0..2).map { offset ->
         val ym = month.plusMonths(offset.toLong())
         ym to dueItems(ym).sumOf { it.first.amountClp }
@@ -1972,13 +1992,72 @@ fun Dashboard(
             }
         }
         item {
-            Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.fillMaxWidth().border(1.dp, FinancePalette.Border, RoundedCornerShape(20.dp))) {
-                Column(Modifier.fillMaxWidth().padding(18.dp)) {
-                    Text("PROYECCIÓN DE FIN DE MES", style = MaterialTheme.typography.labelLarge, color = FinancePalette.Muted, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(5.dp))
-                    Text(money(balance - dueThisMonth), style = MaterialTheme.typography.headlineMedium, color = FinancePalette.Navy, fontWeight = FontWeight.Bold)
-                    Text("Disponible registrado menos todas las cuotas pendientes del mes (${money(dueThisMonth)}).", style = MaterialTheme.typography.bodySmall)
-                    Text("Estimación: no incluye futuros ingresos, gastos variables ni pagos ya reflejados en movimientos.", style = MaterialTheme.typography.bodySmall)
+            Card(shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                modifier = Modifier.fillMaxWidth().border(1.dp, FinancePalette.Border, RoundedCornerShape(20.dp))) {
+                Column(Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text("PROYECCIÓN DE FIN DE MES",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = FinancePalette.Muted, fontWeight = FontWeight.Bold)
+                    Text(money(projectedCash), style = MaterialTheme.typography.headlineMedium,
+                        color = if (projectedCash < 0) Color(0xFFC75146) else FinancePalette.Navy,
+                        fontWeight = FontWeight.Bold)
+                    HorizontalDivider(color = FinancePalette.Border)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Saldo disponible", style = MaterialTheme.typography.bodySmall)
+                        Text(money(cashflow.cashBalanceClp), fontWeight = FontWeight.SemiBold)
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Créditos pendientes (${cashflow.creditsCount})",
+                            style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        Text("− " + money(cashflow.creditPaymentsClp),
+                            color = Color(0xFFAD4141), fontWeight = FontWeight.SemiBold)
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Gastos previstos restantes (${cashflow.plansCount})",
+                            style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        Text("− " + money(cashflow.plannedPaymentsClp),
+                            color = Color(0xFFAD4141), fontWeight = FontWeight.SemiBold)
+                    }
+                    if (cashflow.alreadyRegisteredCount > 0 || cashflow.overlapsCount > 0) {
+                        Text(
+                            "Sin descontar nuevamente: ${cashflow.alreadyRegisteredCount} pago(s) " +
+                                "en movimientos y ${cashflow.overlapsCount} compromiso(s) repetido(s).",
+                            color = Color(0xFF13775C), style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    if (cashflow.excludedCreditPlansClp > 0L) {
+                        Text("Los gastos previstos asignados a tarjetas de crédito no se descuentan " +
+                            "del efectivo ahora; se pagarán cuando venza la tarjeta.",
+                            color = FinancePalette.Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (cashflow.expectedReceivablesClp > 0) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Incluir cobros pendientes",
+                                    style = MaterialTheme.typography.bodySmall)
+                                Text(money(cashflow.expectedReceivablesClp) +
+                                    " · solo si esperas recibirlos este mes",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = FinancePalette.Muted)
+                            }
+                            Switch(
+                                checked = includeReceivables,
+                                onCheckedChange = { enabled ->
+                                    if (projectionPrefs.edit()
+                                        .putBoolean("include_unpaid_receivables", enabled).commit()) {
+                                        includeReceivables = enabled
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    Text("Estimación basada en pagos pendientes. Para evitar duplicados, " +
+                        "marca las cuotas pagadas en Créditos y vincula los gastos " +
+                        "ya registrados en Movimientos. Las metas por categoría no son " +
+                        "cargos bancarios. El cupo utilizado no equivale a la facturación.",
+                        style = MaterialTheme.typography.bodySmall, color = FinancePalette.Muted)
                 }
             }
         }
@@ -2432,7 +2511,7 @@ fun ObligationScreen(items: List<Obligation>, kind: String, dao: FinanceDao, sco
         }
         item {
             Text(if (kind == "Pago") "Cuotas y pagos pendientes" else "Reembolsos por cobrar", style = MaterialTheme.typography.titleLarge)
-            Text(if (kind == "Pago") "Ingresa el valor de CADA cuota y la fecha del primer vencimiento. Para gastos recurrentes, registra cada mes como un pago separado." else "Registra dinero que otra persona debe devolverte.", style = MaterialTheme.typography.bodySmall)
+            Text(if (kind == "Pago") "Registra cada cuota con su valor y primer vencimiento. Estas cuotas se incluyen automáticamente en la proyección de fin de mes. «Pagar una cuota» actualiza la deuda, pero NO descuenta dinero: registra también la salida en Movimientos o impórtala desde el banco, sin duplicarla." else "Registra dinero que otra persona debe devolverte. Solo se suma a la proyección si activas «Incluir cobros pendientes» en Inicio.", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(title, { title = it }, label = { Text(if (kind == "Pago") "Compra o cuenta" else "Persona y motivo") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text(if (kind == "Pago") "Valor de cada cuota CLP" else "Monto a cobrar CLP") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
             AccountPicker(account, { account = it }, availableAccounts)
