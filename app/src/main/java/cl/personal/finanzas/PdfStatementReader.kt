@@ -168,11 +168,14 @@ object PdfStatementReader {
             "Esta cartola corresponde a MACHBANK. Selecciona MACH antes de importar."
         }
 
+        // PDFBox puede entregar espacios como separaciones visuales, sin
+        // glifos de espacio. Para reconocer títulos no dependemos de ellos.
         val summaryHeaders = lines.filter { line ->
-            line.normalized.contains("saldo inicial del periodo") &&
-                line.normalized.contains("total ingresos del periodo") &&
-                line.normalized.contains("total egresos del periodo") &&
-                line.normalized.contains("saldo contable final del periodo")
+            val compact = line.normalized.replace(" ", "")
+            compact.contains("saldoinicialdelperiodo") &&
+                compact.contains("totalingresosdelperiodo") &&
+                compact.contains("totalegresosdelperiodo") &&
+                compact.contains("saldocontablefinaldelperiodo")
         }
         require(summaryHeaders.isNotEmpty()) {
             "No se reconoció el resumen de saldos MACH; no se importó nada."
@@ -215,15 +218,15 @@ object PdfStatementReader {
                 currentPage = line.page
                 inTable = false
             }
-            val label = line.normalized
-            if (label.contains("fecha operacion") && label.contains("descripcion") &&
-                label.contains("egreso") && label.contains("ingreso") &&
-                label.contains("saldo")) {
+            val label = line.normalized.replace(" ", "")
+            if (label.contains("fecha") && label.contains("operacion") &&
+                label.contains("descripcion") && label.contains("egreso") &&
+                label.contains("ingreso") && label.contains("saldo")) {
                 inTable = true
                 continue
             }
             if (!inTable) continue
-            if (label.contains("informacion general")) {
+            if (label.contains("informaciongeneral")) {
                 inTable = false
                 continue
             }
