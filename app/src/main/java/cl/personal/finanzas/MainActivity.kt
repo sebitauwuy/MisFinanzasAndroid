@@ -335,6 +335,14 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
     var visibleAccounts by remember { mutableStateOf(AccountCatalog.selected(context)) }
     var managingAccounts by remember { mutableStateOf(false) }
     var widgetDetails by remember { mutableStateOf(PaymentDueWidgetSettings.showDetails(context)) }
+    // El resumen del inicio usa los mismos registros de Room y se recalcula
+    // también si cambia un saldo inicial o la selección de cuentas.
+    LaunchedEffect(loadedMovements, loadedObligations, loadedPlannedExpenses,
+        openingBalances, visibleAccounts) {
+        if (loadedMovements != null && loadedObligations != null && loadedPlannedExpenses != null) {
+            FinancialSummaryWidgetUpdater.refreshAsync(context)
+        }
+    }
     LaunchedEffect(foregroundEvent, unlocked, accountConfigured, loadedObligations, loadedPlannedExpenses) {
         // Solo se pregunta una vez por entrada a la app, después de las 17:00.
         // La actualización de Room o la navegación no vuelven a abrir el diálogo.
@@ -1149,6 +1157,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                                         if (PaymentDueWidgetSettings.setShowDetails(context, enabled)) {
                                             widgetDetails = enabled
                                             PaymentDueWidgetUpdater.render(context, obligations, plannedExpenses)
+                                            FinancialSummaryWidgetUpdater.refreshAsync(context)
                                         }
                                     })
                                 }
