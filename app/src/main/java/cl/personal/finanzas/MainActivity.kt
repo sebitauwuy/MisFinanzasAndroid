@@ -473,7 +473,7 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                         if (parsed.source == "CuentaRUT / BancoEstado" && csvAccount != "BancoEstado") {
                             error("Esta cartola parece ser de CuentaRUT. Selecciona BancoEstado antes de importar.")
                         }
-                        csvPreview = parsed.items
+                        csvPreview = parsed.items.map(UberPayoutRecognition::classify)
                         csvCutoff = LocalDate.now().toString()
                         csvRealBalance = ""
                         csvExisting = dao.allMovements()
@@ -662,7 +662,16 @@ fun FinanceApp(db: FinanceDatabase, sharedText: String = "", foregroundEvent: In
                                 "sin modificar el saldo inicial ni las cuotas.",
                                 style = MaterialTheme.typography.bodySmall)
                         }
-                        newRows.take(5).forEach { Text("${it.date} · ${it.description} · ${money(it.amountClp)}", style = MaterialTheme.typography.bodySmall) }
+                        if (newRows.any(UberPayoutRecognition::matches)) {
+                            Text("Abono de Uber detectado: categoría Trabajo. " +
+                                "Revisa que el abono aparezca con signo positivo y " +
+                                "no esté registrado previamente.",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                        newRows.take(5).forEach { row ->
+                            Text("${row.date} · ${UberPayoutRecognition.displayName(row, null)} · ${money(row.amountClp)}",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             },
@@ -2391,8 +2400,10 @@ fun MovementScreen(
                     Card(Modifier.fillMaxWidth().animateItem()) {
                         Row(Modifier.padding(12.dp)) {
                             Column(Modifier.weight(1f)) {
-                                val friendly = remember(m.description, aliasRevision) {
-                                    MerchantAliases.label(context, m.description)
+                                val friendly = remember(m.description, m.account, m.amountClp,
+                                    m.category, aliasRevision) {
+                                    UberPayoutRecognition.displayName(
+                                        m, MerchantAliases.nickname(context, m.description))
                                 }
                                 Text(friendly.ifBlank { "(Sin descripción)" },
                                     style = MaterialTheme.typography.titleMedium)
