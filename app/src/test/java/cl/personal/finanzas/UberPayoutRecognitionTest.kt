@@ -18,7 +18,7 @@ class UberPayoutRecognitionTest {
     )
 
     @Test fun recognizesPositiveBankDepositFromRegisteredUberCompany() {
-        val entry = movement("ABONO PAGO PROVEEDORES UBER PAGOS CHILE SPA", 73_953L)
+        val entry = movement("ABONO PAGO PROVEEDORES UBER PAGOS CHILE SPA", 67_890L)
         assertTrue(UberPayoutRecognition.matches(entry))
         val categorized = UberPayoutRecognition.classify(entry)
         assertEquals("Trabajo", categorized.category)
@@ -38,38 +38,38 @@ class UberPayoutRecognitionTest {
 
     @Test fun rejectsNegativeUberTripPurchases() {
         assertFalse(UberPayoutRecognition.matches(
-            movement("PAYU *UBER TRIP", -6_696L)
+            movement("PAYU *UBER TRIP", -2_300L)
         ))
         assertFalse(UberPayoutRecognition.matches(
-            movement("CARGO UBER PAGOS CHILE SPA", -73_953L)
+            movement("CARGO UBER PAGOS CHILE SPA", -67_890L)
         ))
     }
 
     @Test fun doesNotInferUberFromRidesOrGenericProviderPayments() {
         assertFalse(UberPayoutRecognition.matches(
-            movement("PAGO PROVEEDORES", 73_953L)
+            movement("PAGO PROVEEDORES", 67_890L)
         ))
         assertFalse(UberPayoutRecognition.matches(
-            movement("PAYU UBER TRIP", 73_953L)
+            movement("PAYU UBER TRIP", 67_890L)
         ))
         assertFalse(UberPayoutRecognition.matches(
-            movement("Transferencia UBER DRIVER", 73_953L)
+            movement("Transferencia UBER DRIVER", 67_890L)
         ))
     }
 
     @Test fun neverClassifiesAnotherBankAccountAsUberPayout() {
         assertFalse(UberPayoutRecognition.matches(
-            movement("UBER PAGOS CHILE SPA", 73_953L, "MACH")
+            movement("UBER PAGOS CHILE SPA", 67_890L, "MACH")
         ))
     }
 
     @Test fun preservesUserChosenCategories() {
-        val m = movement("UBER PAGOS CHILE SPA", 73_953L, category = "Ingresos extras")
+        val m = movement("UBER PAGOS CHILE SPA", 67_890L, category = "Ingresos extras")
         assertEquals(m.category, UberPayoutRecognition.classify(m).category)
     }
 
     @Test fun displaysFriendlyNameWithoutOverwritingOriginalOrManualAlias() {
-        val m = movement("UBER PAGOS CHILE SPA", 73_953L)
+        val m = movement("UBER PAGOS CHILE SPA", 67_890L)
         assertEquals("Uber · Ganancias",
             UberPayoutRecognition.displayName(m, null))
         assertEquals("Mi pago de Uber",
