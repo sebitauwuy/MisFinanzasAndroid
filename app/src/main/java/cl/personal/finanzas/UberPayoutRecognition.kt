@@ -39,7 +39,7 @@ object UberPayoutRecognition {
         else movement
 
     fun displayName(movement: Movement, alias: String?): String =
-        alias ?: if (matches(movement) && movement.category == CATEGORY)
+        alias ?: if (matches(movement))
             DISPLAY_NAME
         else movement.description
 }
